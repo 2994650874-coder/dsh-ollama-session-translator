@@ -66,7 +66,7 @@ Configuration files stored under the storages directory are preserved upon remov
    - If a block is opened while still streaming, the plugin waits until streaming completes before dispatching a translation request, displaying "模型还在思考，结束后自动翻译…".
    - Texts that are already in Chinese are **skipped immediately** without LLM invocation.
 3. **Chunking & Caching**: Long inputs are split along paragraphs, line breaks, or sentences (default 3000 characters/chunk) and cached chunk-by-chunk. Up to 600 chunks are cached server-side alongside client-side memory. Re-expanding blocks or reloading pages does not trigger repeated requests.
-4. **Settings UI**: Available at **Settings → Plugins → 「CoT 英文转中文」**. The configuration screen includes a real-time status card (active routing, cache hits, call counts, latency, recent errors, configuration path), toggles, provider/model fields ("Fetch Models" auto-discovers a local Ollama and its live models — click a model to fill in; "Clear (no translation)" drops the route), numeric parameter inputs, cache clearing, reset options, and an inline testing sandbox.
+4. **Settings UI**: Available at **Settings → Plugins → 「dsh-ollama-session-translator」**. The configuration screen includes a real-time status card (active routing, cache hits, call counts, latency, recent errors, configuration path), toggles, provider/model fields ("Fetch Models" auto-discovers a local Ollama and its live models — click a model to fill in; "Clear (no translation)" drops the route), numeric parameter inputs, cache clearing, reset options, and an inline testing sandbox.
 
 ## Configuration Options
 

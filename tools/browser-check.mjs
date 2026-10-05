@@ -384,7 +384,7 @@ function settingsHtml() {
       }
       plugin.apply({ get: function (name) { return name === 'slots' ? slots : undefined }, effect: function (fn) { return fn() } })
       log('section registered', sections.length === 1)
-      log('section label', sections.length === 1 && sections[0].options.label() === 'CoT 英文转中文', sections.length === 1 ? sections[0].options.label() : '')
+      log('section label', sections.length === 1 && sections[0].options.label() === 'dsh-ollama-session-translator', sections.length === 1 ? sections[0].options.label() : '')
 
       var root = window.ReactDOM.createRoot(document.getElementById('root'))
       root.render(window.React.createElement(sections[0].component))

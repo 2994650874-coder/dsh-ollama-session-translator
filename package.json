@@ -59,7 +59,7 @@
   },
   "dshhub": {
     "schemaVersion": 1,
-    "displayName": "CoT 英文转中文",
+    "displayName": "dsh-ollama-session-translator",
     "summary": "展开英文思考块即可在下方阅读中文译文。原文无污染、按块缓存、零运行时依赖，支持自定义翻译模型。",
     "categories": [
       "Web UI",
