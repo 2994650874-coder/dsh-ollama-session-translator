@@ -14,6 +14,7 @@
  */
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -73,13 +74,12 @@ function createFakeLlm() {
 }
 
 /** Build a cordis-shaped context and capture the routes the plugin registers. */
-async function boot(options = {}) {
+async function boot() {
   const routes = new Map()
   const effects = []
   const llm = createFakeLlm()
   const services = {
     llm,
-    agentDefaultModel: options.noDefaultModel === true ? undefined : { currentSelection: () => ({ provider: 'fake', model: 'fake-1' }) },
     webServer: {
       register({ path, handler }) {
         routes.set(path, handler)
@@ -170,13 +170,15 @@ await test('every documented route is registered', () => {
   }
 })
 
-await test('GET /state reports defaults, the route, and the config path', async () => {
+await test('GET /state reports defaults, the unset route, and the config path', async () => {
   const response = await call(routes, '/dsh-cot-en2cn/state')
   assert.equal(response.status, 200)
   assert.equal(response.json.ok, true)
   assert.equal(response.json.config.enabled, true)
   assert.equal(response.json.config.targetLanguage, 'zh-CN')
-  assert.deepEqual(response.json.route, { provider: 'fake', model: 'fake-1', source: 'default' })
+  // [PATCH 2026-10-05 no-default-fallback] 空 provider/model = 显式 unset，
+  // 不再回落到 DSH 默认（付费）模型。
+  assert.deepEqual(response.json.route, { provider: '', model: '', source: 'unset' })
   assert.equal(response.json.configPath, join(home, 'storages', 'cot-en2cn', 'config.json'))
   assert.equal(response.json.languages.length, 4)
 })
@@ -186,6 +188,10 @@ await test('GET /state is loopback-only', async () => {
   assert.equal(response.status, 403)
   assert.equal(response.json.ok, false)
 })
+
+// [PATCH 2026-10-05 no-default-fallback] 空路由是显式失败，不再有默认模型兜
+// 底；给这组用例先配好 fake 路由。
+await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { provider: 'fake', model: 'fake-1' } } })
 
 await test('POST /translate returns a translation and caches it', async () => {
   const text = 'Let me read the file and check the failing assertion.'
@@ -290,8 +296,23 @@ await test('GET /providers and /models report the LLM catalogue', async () => {
   assert.equal(models.status, 200)
   assert.deepEqual(models.json.models, [{ id: 'fake-1', name: 'Fake One' }])
 
-  const missing = await call(routes, '/dsh-cot-en2cn/models')
-  assert.equal(missing.status, 400)
+  // [PATCH 2026-10-05 ollama-discover] 无 provider 参数 = 自动发现模式。指向一个
+  // 必然不在的端点，断言形状与「未发现」退化（不碰本机真实 Ollama）。
+  const previous = process.env.DSH_COT_EN2CN_OLLAMA
+  process.env.DSH_COT_EN2CN_OLLAMA = 'http://127.0.0.1:9'
+  try {
+    const discovery = await call(routes, '/dsh-cot-en2cn/models')
+    assert.equal(discovery.status, 200)
+    assert.equal(discovery.json.ok, true)
+    assert.equal(discovery.json.ollama.found, false)
+    assert.deepEqual(discovery.json.ollama.probed, ['http://127.0.0.1:9'])
+    assert.deepEqual(discovery.json.providers, [
+      { id: 'fake', name: 'Fake provider', models: [{ id: 'fake-1', name: 'Fake One' }] },
+    ])
+  } finally {
+    if (previous === undefined) delete process.env.DSH_COT_EN2CN_OLLAMA
+    else process.env.DSH_COT_EN2CN_OLLAMA = previous
+  }
 
   const unknown = await call(routes, '/dsh-cot-en2cn/models', { path: '/dsh-cot-en2cn/models?provider=nope' })
   assert.equal(unknown.status, 200)
@@ -322,24 +343,83 @@ await test('a model failure is reported in band with 502', async () => {
   llm.failWith(null)
 })
 
-await test('without a default model the route is reported unavailable', async () => {
-  const { routes: bareRoutes } = await boot({ noDefaultModel: true })
+await test('a discovered Ollama endpoint lists models and translates directly', async () => {
+  // [PATCH 2026-10-05 ollama-discover] 用假 Ollama 服务器走通完整链路：
+  // 自动发现 → 面板选模型（provider=端点地址）→ 引擎直连 /v1/chat/completions。
+  const server = createServer((req, res) => {
+    if (req.url === '/api/tags') {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ models: [{ name: 'qwen-tr:latest' }, { name: 'tinyllama' }] }))
+      return
+    }
+    if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+      let body = ''
+      req.on('data', (chunk) => {
+        body += chunk
+      })
+      req.on('end', () => {
+        const parsed = JSON.parse(body)
+        const source = parsed.messages[parsed.messages.length - 1].content
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ choices: [{ message: { content: `[直连] ${source}` }, finish_reason: 'stop' }] }))
+      })
+      return
+    }
+    res.statusCode = 404
+    res.end('{}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const endpoint = `http://127.0.0.1:${server.address().port}`
+  const previous = process.env.DSH_COT_EN2CN_OLLAMA
+  process.env.DSH_COT_EN2CN_OLLAMA = endpoint
+  try {
+    const discovered = await call(routes, '/dsh-cot-en2cn/models')
+    assert.equal(discovered.status, 200)
+    assert.equal(discovered.json.ollama.found, true)
+    assert.equal(discovered.json.ollama.endpoint, endpoint)
+    assert.deepEqual(discovered.json.ollama.models.map((entry) => entry.id), ['qwen-tr:latest', 'tinyllama'])
+    // fake 渠道与这台 Ollama 无关 → 对不上已注册渠道，走端点地址直连。
+    assert.equal(discovered.json.ollama.provider, endpoint)
+    assert.equal(discovered.json.ollama.via, 'direct')
+
+    await call(routes, '/dsh-cot-en2cn/config', {
+      method: 'PUT',
+      body: { section: { provider: endpoint, model: 'qwen-tr:latest' } },
+    })
+    const text = 'A direct round trip through the discovered endpoint.'
+    const translated = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text } })
+    assert.equal(translated.status, 200)
+    assert.equal(translated.json.translation, `[直连] ${text}`)
+    assert.equal(translated.json.route.provider, endpoint)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_COT_EN2CN_OLLAMA
+    else process.env.DSH_COT_EN2CN_OLLAMA = previous
+    await new Promise((resolve) => server.close(resolve))
+    // 把 fake 路由还回去，后续用例的假设不变。
+    await call(routes, '/dsh-cot-en2cn/config', {
+      method: 'PUT',
+      body: { section: { provider: 'fake', model: 'fake-1' } },
+    })
+  }
+})
+
+await test('without a configured model translation fails with an explicit unset error', async () => {
+  const { routes: bareRoutes } = await boot()
   // The earlier tests left a provider/model override on disk; clear it so this
-  // boot really has no route at all.
+  // boot really has no route at all — and no silent fallback to any default.
   const cleared = await call(bareRoutes, '/dsh-cot-en2cn/config', {
     method: 'PUT',
     body: { section: { provider: '', model: '' } },
   })
   assert.equal(cleared.json.config.provider, '')
   const state = await call(bareRoutes, '/dsh-cot-en2cn/state')
-  assert.equal(state.json.route.source, 'unavailable')
-  assert.match(String(state.json.route.error), /模型路由/)
+  assert.equal(state.json.route.source, 'unset')
   const translate = await call(bareRoutes, '/dsh-cot-en2cn/translate', {
     method: 'POST',
     body: { text: 'No route exists, so this must fail cleanly.' },
   })
   assert.equal(translate.status, 502)
-  assert.match(String(translate.json.error), /模型路由/)
+  assert.match(String(translate.json.error), /翻译模型未设置/)
 })
 
 await test('no route is registered when webServer is absent', async () => {

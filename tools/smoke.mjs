@@ -407,6 +407,138 @@ await test('a bare config document is accepted (no version envelope)', () => {
   }
 })
 
+process.stdout.write('ollama discovery + direct transport\n')
+
+const { createOllamaClient, discoverOllama, normalizeOllamaEndpoint, ollamaCandidateEndpoints } = await import(
+  pathToFileURL(join(lib, 'ollama.js')).href
+)
+
+await test('normalizeOllamaEndpoint normalizes schemes, ports, and junk', () => {
+  assert.equal(normalizeOllamaEndpoint('127.0.0.1:11434'), 'http://127.0.0.1:11434')
+  assert.equal(normalizeOllamaEndpoint('http://localhost:11434/'), 'http://localhost:11434')
+  assert.equal(normalizeOllamaEndpoint('https://gpu.box:2244/ollama'), 'https://gpu.box:2244')
+  assert.equal(normalizeOllamaEndpoint('ftp://nope'), '')
+  assert.equal(normalizeOllamaEndpoint(''), '')
+})
+
+await test('ollamaCandidateEndpoints honours the env overrides and dedupes', () => {
+  assert.deepEqual(ollamaCandidateEndpoints({ DSH_COT_EN2CN_OLLAMA: 'http://a:1, b:2 ,http://a:1' }), [
+    'http://a:1',
+    'http://b:2',
+  ])
+  assert.deepEqual(ollamaCandidateEndpoints({ OLLAMA_HOST: '127.0.0.1:11434' }), [
+    'http://127.0.0.1:11434',
+    'http://localhost:11434',
+  ])
+  assert.deepEqual(ollamaCandidateEndpoints({}), ['http://127.0.0.1:11434', 'http://localhost:11434'])
+})
+
+await test('discoverOllama reports the first standing endpoint in preference order', async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).startsWith('http://dead:1')) throw new Error('ECONNREFUSED')
+    return {
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'qwen-tr:latest', size: 1, details: { parameter_size: '7B' } }, { name: 'tinyllama' }],
+      }),
+    }
+  }
+  const found = await discoverOllama({ fetchImpl, endpoints: ['http://dead:1', 'http://live:2'], timeoutMs: 200 })
+  assert.equal(found.found, true)
+  assert.equal(found.endpoint, 'http://live:2')
+  assert.deepEqual(found.models.map((entry) => entry.id), ['qwen-tr:latest', 'tinyllama'])
+  assert.equal(found.models[0].parameterSize, '7B')
+  const none = await discoverOllama({
+    fetchImpl: async () => {
+      throw new Error('down')
+    },
+    endpoints: ['http://dead:9'],
+    timeoutMs: 200,
+  })
+  assert.equal(none.found, false)
+  assert.deepEqual(none.probed, ['http://dead:9'])
+})
+
+await test('discoverOllama falls back to /v1/models when /api/tags is unusable', async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).endsWith('/api/tags')) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => ({ data: [{ id: 'm1' }, { id: 'm2' }] }) }
+  }
+  const found = await discoverOllama({ fetchImpl, endpoints: ['http://x:1'], timeoutMs: 200 })
+  assert.equal(found.found, true)
+  assert.deepEqual(found.models.map((entry) => entry.id), ['m1', 'm2'])
+})
+
+await test('the direct client yields one text-delta and a stop finish', async () => {
+  const seen = []
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), body: JSON.parse(init.body) })
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '译文在这里' }, finish_reason: 'stop' }] }) }
+  }
+  const client = createOllamaClient('http://gpu:11434', { fetchImpl })
+  const chunks = []
+  for await (const chunk of client.stream({
+    system: '你是翻译引擎',
+    model: 'qwen-tr',
+    maxTokens: 512,
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+  })) {
+    chunks.push(chunk)
+  }
+  assert.deepEqual(chunks.map((chunk) => chunk.type), ['text-delta', 'finish'])
+  assert.equal(chunks[0].text, '译文在这里')
+  assert.deepEqual(chunks[1].reason, { kind: 'stop' })
+  assert.equal(seen[0].url, 'http://gpu:11434/v1/chat/completions')
+  assert.equal(seen[0].body.model, 'qwen-tr')
+  assert.equal(seen[0].body.stream, false)
+  assert.equal(seen[0].body.max_tokens, 512)
+  assert.deepEqual(seen[0].body.messages, [
+    { role: 'system', content: '你是翻译引擎' },
+    { role: 'user', content: 'hello' },
+  ])
+})
+
+await test('the direct client maps finish reasons and surfaces failures', async () => {
+  const truncated = createOllamaClient('http://gpu:1', {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: 'x' }, finish_reason: 'length' }] }) }),
+  })
+  const chunks = []
+  for await (const chunk of truncated.stream({ model: 'm', messages: [] })) chunks.push(chunk)
+  assert.deepEqual(chunks[1].reason, { kind: 'max-tokens' })
+
+  const httpFail = createOllamaClient('http://gpu:1', {
+    fetchImpl: async () => ({ ok: false, status: 500, text: async () => 'boom' }),
+  })
+  await assert.rejects(
+    async () => {
+      for await (const chunk of httpFail.stream({ model: 'm', messages: [] })) void chunk
+    },
+    /HTTP 500.*boom/,
+  )
+
+  const down = createOllamaClient('http://gpu:1', {
+    fetchImpl: async () => {
+      throw new Error('ECONNREFUSED')
+    },
+  })
+  await assert.rejects(
+    async () => {
+      for await (const chunk of down.stream({ model: 'm', messages: [] })) void chunk
+    },
+    /无法连接 Ollama/,
+  )
+
+  const empty = createOllamaClient('http://gpu:1', {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '' } }] }) }),
+  })
+  await assert.rejects(
+    async () => {
+      for await (const chunk of empty.stream({ model: 'm', messages: [] })) void chunk
+    },
+    /没有返回译文/,
+  )
+})
+
 process.stdout.write('package manifest\n')
 
 await test('the manifest satisfies the DSH bundle + client contract', async () => {
@@ -453,7 +585,7 @@ await test('the plugin declares no runtime dependencies', async () => {
   // A linked source directory cannot resolve bare @deepseek-ai/* specifiers, so
   // the plugin must stay dependency-free to work in every install shape.
   assert.deepEqual(manifest.dependencies ?? {}, {})
-  const sources = ['index.js', 'client.js', 'config.js', 'store.js', 'engine.js', 'text.js', 'languages.js']
+  const sources = ['index.js', 'client.js', 'config.js', 'store.js', 'engine.js', 'text.js', 'languages.js', 'ollama.js']
   for (const file of sources) {
     const source = await readFile(join(lib, file), 'utf8')
     const bare = [...source.matchAll(/^\s*import[^'"]*from\s+'([^'.][^'"]*)'/gm)].map((match) => match[1])
@@ -492,7 +624,9 @@ await test('the browser bundle registers and exports apply/inject', async () => 
     throw new Error(`unexpected require("${name}")`)
   })
   assert.equal(typeof plugin.apply, 'function')
-  assert.deepEqual([...plugin.inject], ['slots'])
+  // [PATCH 2026-10-01 session-cache] 服务声明随本地补丁扩展：sessions 用于取当
+  // 前会话 id（不声明则 ctx 上取不到，缓存归属静默退化）。契约变了，断言随之。
+  assert.deepEqual([...plugin.inject], ['slots', 'sessions'])
   delete globalThis.window
 })
 

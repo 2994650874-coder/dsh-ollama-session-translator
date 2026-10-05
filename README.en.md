@@ -66,7 +66,7 @@ Configuration files stored under the storages directory are preserved upon remov
    - If a block is opened while still streaming, the plugin waits until streaming completes before dispatching a translation request, displaying "模型还在思考，结束后自动翻译…".
    - Texts that are already in Chinese are **skipped immediately** without LLM invocation.
 3. **Chunking & Caching**: Long inputs are split along paragraphs, line breaks, or sentences (default 3000 characters/chunk) and cached chunk-by-chunk. Up to 600 chunks are cached server-side alongside client-side memory. Re-expanding blocks or reloading pages does not trigger repeated requests.
-4. **Settings UI**: Available at **Settings → Plugins → 「CoT 英文转中文」**. The configuration screen includes a real-time status card (active routing, cache hits, call counts, latency, recent errors, configuration path), toggles, provider/model fields (with "Fetch Models" and "Use Default Model" actions), numeric parameter inputs, cache clearing, reset options, and an inline testing sandbox.
+4. **Settings UI**: Available at **Settings → Plugins → 「CoT 英文转中文」**. The configuration screen includes a real-time status card (active routing, cache hits, call counts, latency, recent errors, configuration path), toggles, provider/model fields ("Fetch Models" auto-discovers a local Ollama and its live models — click a model to fill in; "Clear (no translation)" drops the route), numeric parameter inputs, cache clearing, reset options, and an inline testing sandbox.
 
 ## Configuration Options
 
@@ -77,10 +77,11 @@ Configuration is stored at `$DSH_HOME/storages/cot-en2cn/config.json`. It is dec
 | 启用 CoT 中文翻译 | 开 (On) | Master switch. Turning this off hides all translation panels immediately without affecting original content. |
 | 展开时自动翻译 | 开 (On) | When disabled, translations must be triggered manually per block via "翻译这段思考". |
 | 思考过程中也翻译 | 关 (Off) | Translates concurrently while the model is streaming tokens (increases token usage due to repetitive calls). |
-| Provider / 模型 | Empty | Leave empty to follow DSH default model routing. Must both be populated or both left empty. Small, fast models are recommended. |
+| Provider / 模型 | Empty | Both populated or both empty. **Empty = no translation** (the panel shows a "model not set" error); the paid default model is never used silently. A Provider of an Ollama endpoint URL (e.g. `http://127.0.0.1:11434`) connects to it **directly with zero configuration**; a registered DSH provider name routes through the DSH model channel. "Fetch Models" auto-discovers a local Ollama and its live models. Small, fast models are recommended. |
 | 关闭思考（推荐） | 开 (On) | Routes translation requests through DSH auxiliary channel (`purpose: session-title`) to avoid generating thinking tokens. **Only supported by DeepSeek official adapter**; behaves as a no-op on generic OpenAI-compatible proxies such as pi-ai. |
 | 目标语言 | 简体中文 | Target language. Options include 繁體中文, English, and 日本語. |
 | 单块字符数 | 3000 | Maximum character limit per chunk. Smaller values prevent max-tokens truncation at the expense of additional requests. |
+| 单次输入上限 | 24000 | Total character budget per thinking block (500~200000): beyond it only the first N characters are translated and the panel notes "only the first part was translated". Independent of the chunk size — chunks bound one request, this bounds the whole block. Raise it (e.g. 200000) for long chain-of-thought workloads. |
 | 并发请求数 | 2 | Maximum concurrent translation requests sent to the model. |
 | 单次超时 | 120 秒 | Request timeout in seconds. |
 | 服务端缓存条数 | 600 | Maximum number of chunk translations cached in the host process. |
@@ -97,7 +98,7 @@ The plugin consists of two runtime boundaries:
   - `GET /dsh-cot-en2cn/providers`
   - `GET /dsh-cot-en2cn/models`
   - `POST /dsh-cot-en2cn/cache/clear`
-  Translations are dispatched via DSH's internal `ctx.llm.stream()`, reusing existing credentials and model profiles configured in DSH. External and non-loopback requests are blocked.
+  Translations are dispatched via DSH's internal `ctx.llm.stream()`, reusing existing credentials and model profiles configured in DSH; when the Provider is an `http(s)://` endpoint the plugin talks to that Ollama's OpenAI-compatible API (`/v1/chat/completions`) directly, so a local model needs zero configuration. External and non-loopback requests are blocked.
 - **Browser Client (`lib/client.js`)**: Watches the active chat container using `MutationObserver`, anchors thinking blocks using the stable `data-variant="think"` attribute (with fallback class names), and mounts translation views directly into the DOM tree.
 
 Why not use official slots: DSH does not offer a dedicated slot for individual thinking segments. Overriding `conversation.chat.node` would discard the entire assistant renderer. Lightweight DOM augmentation provides stable attachment without platform side-effects.
@@ -122,8 +123,8 @@ A: Check the following in order:
 3. Check if the original thinking text is already Chinese (these are skipped intentionally).
 4. Inspect the translation area for error banners such as timeouts.
 
-**Q: The panel reports "没有可用的模型路由" (No model route available)?**
-A: Either DSH has no default model configured, or only one of Provider/Model was entered in the plugin settings. Set both or leave both empty.
+**Q: The panel reports "翻译模型未设置" (translation model not set)?**
+A: One or both of Provider/Model are empty in the plugin settings. Both must be filled; the plugin never silently falls back to the paid default model. With a local Ollama running, "Fetch Models" discovers it and fills the fields in one click.
 
 **Q: The output is truncated due to max-tokens limits?**
 A: Decrease the "单块字符数" (Chunk character limit) in settings (e.g., to 1500).
