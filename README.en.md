@@ -173,6 +173,17 @@ dsh-cot-en2cn/
 └── LICENSE
 ```
 
+## Changelog (local enhancements)
+
+> This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).
+
+### 2026-10-06
+
+- **Partial selection works** (`select-safe`): fixed the translation body destroying in-progress text selections — idempotent rendering (no write when unchanged), `srcKey` bookkeeping on cache hits (breaks a self-sustaining 220ms rewrite loop), deferred writes while a selection is active.
+- **Retranslate really retranslates** (`retry-force`): `force` now bypasses the per-chunk LRU cache (previously long texts instantly got back an identical stale translation).
+- **Mixed Chinese/English content is translated** (`skip-policy`): tightened the already-Chinese shortcut (`latin<=16 || cjk>=latin*6`); skipped text is now labeled **"Already Chinese · left untranslated"** instead of masquerading as a translation.
+- Tests: smoke 40 / host-integration 16 / select-safe-test 11 all green.
+
 ## License
 
 [MIT](LICENSE)
