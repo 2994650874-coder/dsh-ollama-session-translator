@@ -205,14 +205,27 @@ await test('POST /translate returns a translation and caches it', async () => {
   assert.equal(llm.calls.length, 1)
 })
 
+await test('POST /translate with force bypasses caches and retranslates', async () => {
+  // [PATCH 2026-10-06 retry-force] 回归：重新翻译（force）必须打新调用，不得被
+  // 分块 LRU 秒回同稿（面板幂等渲染下那会表现为"点了没动静"）。
+  const text = 'Let me read the file and check the failing assertion.'
+  const before = llm.calls.length
+  const forced = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text, force: true } })
+  assert.equal(forced.status, 200)
+  assert.equal(forced.json.cached, false)
+  assert.equal(llm.calls.length, before + 1)
+})
+
 await test('POST /translate marks already-Chinese text as skipped', async () => {
+  // 计数用增量断言（绝对计数会让新增用例连锁打断后续用例的收尾恢复）。
+  const before = llm.calls.length
   const response = await call(routes, '/dsh-cot-en2cn/translate', {
     method: 'POST',
     body: { text: '这段思维链本来就是中文，不需要翻译，也不该花钱。' },
   })
   assert.equal(response.status, 200)
   assert.equal(response.json.skipped, 'already-chinese')
-  assert.equal(llm.calls.length, 1)
+  assert.equal(llm.calls.length, before)
 })
 
 await test('POST /translate rejects a wrong method, a bad body, and a remote caller', async () => {
@@ -233,6 +246,7 @@ await test('POST /translate rejects a wrong method, a bad body, and a remote cal
 })
 
 await test('POST /translate is disabled while the master switch is off', async () => {
+  const before = llm.calls.length
   await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { enabled: false } } })
   const response = await call(routes, '/dsh-cot-en2cn/translate', {
     method: 'POST',
@@ -240,7 +254,7 @@ await test('POST /translate is disabled while the master switch is off', async (
   })
   assert.equal(response.status, 200)
   assert.equal(response.json.skipped, 'disabled')
-  assert.equal(llm.calls.length, 1)
+  assert.equal(llm.calls.length, before)
   await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { enabled: true } } })
 })
 

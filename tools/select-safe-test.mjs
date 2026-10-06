@@ -1,14 +1,15 @@
-// select-safe-test.mjs —— 译文面板「幂等写入 + 选区保护」专项测试
+// select-safe-test.mjs —— 译文面板「幂等写入 + 选区保护 + 跳过标记」专项测试
 //
-// 与 lib/client.js 的 [PATCH 2026-10-06 select-safe] 段**逐字对应**（改动
-// client.js 对应段须同步本文件）。覆盖：
+// 与 lib/client.js 的 [PATCH 2026-10-06 select-safe] / [PATCH 2026-10-06 skip-policy]
+// 段**逐字对应**（改动 client.js 对应段须同步本文件）。覆盖：
 //   - setTextIfChanged      同值不写（textContent 赋值=销毁重建文本节点）
 //   - setStatus / setError  状态与错误行同值不写、hidden 语义不变
 //   - renderTranslation     同译文重渲染零写入；换稿才写；选区落在面板内时
-//                           延迟补写（新稿覆盖旧稿，至多一个定时器）
+//                           延迟补写（新稿覆盖旧稿，至多一个定时器）；
+//                           already-chinese 回显明示「未翻译」且不挂缓存徽章
 //   - selectionTouches      选区判定（折叠/无交集/异常/无 document 均为 false）
 //
-// 跑法：node tools/select-safe-test.mjs（工作区镜像位于 _analysis/select-safe-test.mjs）
+// 跑法：node _analysis/select-safe-test.mjs
 
 import assert from 'node:assert/strict'
 
@@ -106,7 +107,10 @@ function renderTranslation(panel, payload) {
     const model = route === undefined || route === null ? '' : `${route.provider}/${route.model}`
     const bits = []
     if (model !== '') bits.push(model)
-    if (payload.cached === true) bits.push(t('panel.cached'))
+    // 跳过≠翻译：已含中文的回显必须明示"未翻译"，
+    // 且不挂误导的「缓存」徽章（skip 返回的 cached:true 并非译文缓存命中）。
+    if (payload.skipped === 'already-chinese') bits.push(t('panel.alreadyChinese'))
+    else if (payload.cached === true) bits.push(t('panel.cached'))
     if (typeof payload.ms === 'number' && payload.cached !== true) bits.push(`${Math.round(payload.ms)}ms`)
     if (payload.skipped === 'truncated') bits.push(t('panel.truncated'))
     setTextIfChanged(meta, bits.join(' · '))
@@ -275,6 +279,16 @@ check('换稿才写正文与 meta', () => {
   renderTranslation(panel, { translation: '定稿', route: { provider: 'p', model: 'm' }, cached: true })
   assert.equal(body.writes, 2)
   assert.equal(meta.writes, 2)
+})
+
+check('跳过回显（already-chinese）明示未翻译、不挂缓存徽章', () => {
+  const body = bodyPart('')
+  const meta = el({ 'data-role': 'meta' })
+  const panel = panelWith(body, meta, el({ 'data-act': 'manual' }))
+  renderTranslation(panel, { translation: '原文直接回显', skipped: 'already-chinese', cached: true })
+  assert.equal(meta.textContent, 'panel.alreadyChinese')
+  renderTranslation(panel, { translation: '真译文', route: { provider: 'p', model: 'm' }, cached: true })
+  assert.equal(meta.textContent, 'p/m · panel.cached')
 })
 
 check('选区落在面板内 → 延迟补写，新稿覆盖旧稿，至多一个定时器', async () => {

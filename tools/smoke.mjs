@@ -120,6 +120,10 @@ await test('looksChinese separates Chinese prose from English prose', () => {
   assert.equal(looksChinese('这是一段中文思维链，里面有几个 token 和 tool_call 之类的英文词。'), true)
   assert.equal(looksChinese('Let me check the file and then run the tests.'), false)
   assert.equal(looksChinese(''), false)
+  // [PATCH 2026-10-06 skip-policy] 含实际英文词句的混杂内容必须照翻，不得判已中文
+  // （旧阈值会把思考开头的中英混杂前缀当译文原样放出）。
+  assert.equal(looksChinese('先看 input 的返回值，然后 parse 这个 JSON，最后 check error 就可以了。'), false)
+  assert.equal(looksChinese('So the plan is simple. 先把条件列出来，然后求解方程。'), false)
 })
 
 await test('chunkText never loses a byte and respects the ceiling', () => {
@@ -187,6 +191,24 @@ await test('already-Chinese text skips the model', async () => {
   const forced = await engine.translate('这里已经是中文思考了，不需要再翻译一遍。', { force: true })
   assert.equal(forced.skipped, null)
   assert.equal(llm.calls.length, 1)
+})
+
+await test('force bypasses the per-chunk cache so retry really retranslates', async () => {
+  // [PATCH 2026-10-06 retry-force] 回归：「重新翻译」必须打新调用。旧实现 force 只
+  // 绕过已中文捷径与会话缓存，分块 LRU 照常命中 → 长文本"重翻"秒回一字不差的旧稿。
+  const llm = fakeLlm((core) => `[zh] ${core}`)
+  const { engine } = makeEngine(llm)
+  const text = 'A reasoning paragraph long enough to be cached after its first translation round.'
+  const first = await engine.translate(text)
+  assert.equal(first.cached, false)
+  assert.equal(llm.calls.length, 1)
+  const again = await engine.translate(text)
+  assert.equal(again.cached, true)
+  assert.equal(llm.calls.length, 1)
+  const forced = await engine.translate(text, { force: true })
+  assert.equal(forced.cached, false)
+  assert.equal(llm.calls.length, 2)
+  assert.equal(forced.translation, first.translation)
 })
 
 await test('concurrent requests for the same text share one model call', async () => {
