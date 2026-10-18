@@ -12,6 +12,22 @@ A Web plugin for DeepSeek Harness (DSH). When a model thinks in English, expandi
 +------------------------------------------------------------------------
 ```
 
+## Table of Contents
+
+- [Why This Plugin](#why-this-plugin)
+- [Requirements](#requirements)
+- [Installation & Setup](#installation--setup)
+- [How It Works](#how-it-works)
+- [Configuration Options](#configuration-options)
+- [Technical Architecture & Guarantees](#technical-architecture--guarantees)
+- [Code Map & Reading Path](#code-map--reading-path)
+- [Privacy & Resource Usage](#privacy--resource-usage)
+- [FAQ](#faq)
+- [Quality Assurance](#quality-assurance)
+- [Project Structure](#project-structure)
+- [Changelog (maintained fork)](#changelog-maintained-fork)
+- [License](#license)
+
 ## Why This Plugin
 
 When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-thought outputs are frequently generated in English. Reading through extensive English reasoning chains is mentally exhausting for native Chinese speakers.
@@ -152,6 +168,63 @@ Guarantees provided:
 2. **Complete Cleanliness**: Disabling or removing the plugin restores the vanilla UI instantly.
 3. **Safe Degradation**: If DSH updates its DOM structure in future versions, the plugin fails silently without breaking chat interactions.
 
+## Code Map & Reading Path
+
+> About to modify this plugin? Start from the table below. Line counts drift with every change; the responsibilities and key symbols are what stay stable.
+
+### File map
+
+| File | Lines | Responsibility |
+|---|---|---|
+| `lib/index.js` | ~617 | **Host entry point**. Registers the eight same-origin routes, owns the config, builds the engine, assembles `statePayload`. |
+| `lib/engine.js` | ~602 | **Translation engine**. Chunking → concurrency gate → model call → cache. Fallback route, silence watchdog and probe mode live here. |
+| `lib/client.js` | ~2223 | **Browser half**. Two parties: the translation panels (DOM augmentation) and the settings panel (React). |
+| `lib/text.js` | ~158 | **Pure functions**. Chunking, boundary clipping, script detection, token estimation. No side effects, easiest to test. |
+| `lib/config.js` | ~102 | Defaults plus `normalizeConfig` validation and clamping. |
+| `lib/store.js` | ~263 | Atomic read/write for the config file and the session-level translation cache. |
+| `lib/ollama.js` | ~281 | Ollama endpoint discovery and an OpenAI-compatible client (SSE streaming). |
+| `lib/languages.js` | ~23 | Target-language table. |
+
+### Find the entry point by task
+
+| I want to change… | Look at |
+|---|---|
+| one control in the panel | `createSection()` in `client.js` (around L ~1293) |
+| add a backend route | `ROUTES` plus the `route()` calls in `index.js` |
+| chunking / clipping / Chinese detection | `text.js` |
+| fallback route, watchdog, retry policy | `callModel()` and `translate()` in `engine.js` |
+| translation panel rendering and interaction | the `inline translator` section of `client.js` (around L ~320) |
+| config defaults / allowed ranges | `DEFAULT_CONFIG` and `NUMBER_BOUNDS` in `config.js` |
+
+### The four sections of `lib/client.js`
+
+The largest file is divided by banner comments into four sections:
+
+| Section | Starts at | Contents |
+|---|---|---|
+| utilities | L~274 | Session key, hashing, HTTP wrappers, browser-side cache |
+| inline translator | L~320 | Translation panels: DOM observer, thinking-block lookup, panel injection, selection protection, live streaming |
+| settings UI | L~1030 | Settings panel: `createSection()`, `Dropdown`, `NumberInput`, the six cards |
+| wiring | L~2136 | `apply(ctx)`: locale registration, sessions binding, slot mounting |
+
+### Invariants (read before editing)
+
+1. **The original text is never modified.** The plugin only inserts nodes into the DOM; it never touches session records, trajectory views or the KV cache.
+2. **The panel is draft-based with explicit save.** `edit()` only mutates the local draft; `saveAll()` is the single path to disk.
+3. **`group()` children may contain arrays** (the return value of `.map()`). Flatten them before attaching keys, or React renders an object and the whole page goes blank.
+4. **Disable thinking with `reasoningEffort: 'off'`**, not `purpose`. DSH's `purpose` only affects a `compaction` header.
+5. **The two limits mean different things**: `maxInputChars` decides how much of one reasoning block is translated at all, `maxChunkChars` decides how big each request is.
+
+### Verify after editing
+
+```bash
+node tools/smoke.mjs              # 53: chunking, cache, concurrency, fallback, clamping
+node tools/select-safe-test.mjs   # 11: idempotent panel writes, selection protection
+node tools/host-integration.mjs   # 15: routes, config persistence, loopback guard
+```
+
+All three must be green before committing. `browser-check.mjs` needs a real browser and fails in browserless environments.
+
 ## Privacy & Resource Usage
 
 - **Zero Key Access**: The plugin does not manage, log, or request API keys. Calls run entirely through DSH's internal routing.
@@ -195,6 +268,8 @@ Test suite breakdown:
 - `tools/browser-check.mjs`: loads the real `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, Chinese skipping, event-propagation isolation, instant cleanup on global disable, and panel rendering. **Requires a working browser**; it fails in browserless environments.
 
 ## Project Structure
+
+> For each file's responsibility, the reading path, and the invariants, see [Code Map & Reading Path](#code-map--reading-path) above.
 
 ```text
 dsh-cot-en2cn/

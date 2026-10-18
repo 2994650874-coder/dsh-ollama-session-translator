@@ -30,6 +30,22 @@ DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展�
 +------------------------------------------------------------------------
 ```
 
+## 目录
+
+- [为什么需要它](#为什么需要它)
+- [系统要求](#系统要求)
+- [安装与生效](#安装与生效)
+- [实际行为与使用方式](#实际行为与使用方式)
+- [设置项](#设置项)
+- [原理与安全性保证](#原理与安全性保证)
+- [代码结构与阅读路径](#代码结构与阅读路径)
+- [隐私与调用开销](#隐私与调用开销)
+- [常见问题 (FAQ)](#常见问题-faq)
+- [质量保证](#质量保证)
+- [目录结构](#目录结构)
+- [更新日志（本地增强分支）](#更新日志本地增强分支)
+- [许可证](#许可证)
+
 ## 为什么需要它
 
 在使用 DeepSeek、GLM、Gemini 等推理模型时，模型经常输出大段英文思维链（Chain of Thought）。对于中文母语用户，逐字阅读长篇英文思考过程非常耗费精力。
@@ -161,6 +177,63 @@ dsh plugin --profile desktop remove dsh-cot-en2cn
 2. **零副作用**：随时停用插件，界面恢复原生状态，不留痕迹。
 3. **优雅降级**：若未来 DSH 调整了思考块的 DOM 结构，插件仅安静地不显示译文，绝不会破坏宿主页面的正常渲染。
 
+## 代码结构与阅读路径
+
+> 想改这个插件，从下表找到对应文件即可。行数为参考值（会随改动漂移），职责与关键符号才是稳定的。
+
+### 文件地图
+
+| 文件 | 行数 | 职责 |
+|---|---|---|
+| `lib/index.js` | ~617 | **宿主端入口**。注册八条同源路由、持有配置、创建引擎、组装 `statePayload`。 |
+| `lib/engine.js` | ~602 | **翻译引擎**。分块 → 并发闸门 → 调模型 → 缓存；含备用路由、静默看门狗、探针模式。 |
+| `lib/client.js` | ~2223 | **浏览器端**。两半：译文面板（DOM 增强）+ 设置面板（React）。 |
+| `lib/text.js` | ~158 | **纯函数**。分块、边界截断、中文检测、token 估算。无副作用，最好测。 |
+| `lib/config.js` | ~102 | 默认值 + `normalizeConfig` 校验夹紧。 |
+| `lib/store.js` | ~263 | 配置文件与会话级译文缓存的原子读写。 |
+| `lib/ollama.js` | ~281 | Ollama 端点探测 + OpenAI 兼容客户端（SSE 流式）。 |
+| `lib/languages.js` | ~23 | 目标语言表。 |
+
+### 按任务找入口
+
+| 我想改… | 看这里 |
+|---|---|
+| 面板上某个控件 | `client.js` 的 `createSection()`（L~1293 起） |
+| 新增一条后端接口 | `index.js` 的 `ROUTES` + `route()` 调用 |
+| 分块 / 截断 / 中文判定 | `text.js` |
+| 备用路由、看门狗、重试策略 | `engine.js` 的 `callModel()` 与 `translate()` |
+| 译文面板的渲染与交互 | `client.js` 的 `inline translator` 段（L~320 起） |
+| 配置项默认值 / 取值范围 | `config.js` 的 `DEFAULT_CONFIG` 与 `NUMBER_BOUNDS` |
+
+### `lib/client.js` 的四段结构
+
+这个文件最大，按注释里的分隔线切成四段：
+
+| 段 | 起始行 | 内容 |
+|---|---|---|
+| utilities | L~274 | 会话 key、hash、HTTP 封装、客户端缓存 |
+| inline translator | L~320 | 译文面板：DOM 监听、定位思考块、注入面板、选区保护、live 流式 |
+| settings UI | L~1030 | 设置面板：`createSection()`、`Dropdown`、`NumberInput`、六张卡片 |
+| wiring | L~2136 | `apply(ctx)`：注册 locale、绑定 sessions、挂载 slot |
+
+### 关键不变量（改代码前必读）
+
+1. **原文永不修改**。插件只在 DOM 里插节点，不碰会话数据、轨迹、KV cache。
+2. **面板是草稿 + 手动保存**。`edit()` 只改本地草稿，写盘只有 `saveAll()` 一处。
+3. **`group()` 的 children 可能含数组**（`.map()` 返回值），补 key 前必须压平，否则 React 渲染对象会崩掉整页。
+4. **关思考用 `reasoningEffort: 'off'`**，不是 `purpose`。DSH 的 `purpose` 只影响 `compaction` 的 header。
+5. **两个上限语义不同**：`maxInputChars` 决定"整段最多翻多少字"（超出丢弃），`maxChunkChars` 决定"每次请求切多大"。
+
+### 改完怎么验证
+
+```bash
+node tools/smoke.mjs              # 53 项：分块、缓存、并发、备用路由、配置夹紧
+node tools/select-safe-test.mjs   # 11 项：面板幂等写入、选区保护
+node tools/host-integration.mjs   # 15 项：路由、配置持久化、越权拦截
+```
+
+三项全绿再提交。`browser-check.mjs` 需要真实浏览器，无浏览器环境会失败。
+
 ## 隐私与调用开销
 
 - **不触碰 API Key**：插件不包含、不索取、不存储任何 API Key，所有调用完全基于宿主已配置的通道。
@@ -204,6 +277,8 @@ npm test
 - `tools/browser-check.mjs`：在 Headless Chrome 中加载真实 `lib/client.js`，验证折叠不译、流式等待、中文跳过、DOM 事件冒泡阻断、总开关关闭即时隐藏及面板渲染。**需要可用的浏览器**，无浏览器环境会失败。
 
 ## 目录结构
+
+> 各文件的职责、阅读路径与关键不变量见上面的 [代码结构与阅读路径](#代码结构与阅读路径)。
 
 ```text
 dsh-cot-en2cn/
