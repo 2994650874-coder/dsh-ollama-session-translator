@@ -1,7 +1,7 @@
 {
   "name": "dsh-cot-en2cn",
   "version": "0.1.0",
-  "description": "Inline English-to-Chinese translation plugin for DeepSeek Harness (DSH) thinking blocks without modifying chat history.",
+  "description": "Inline English-to-Chinese translation plugin for DeepSeek Harness (DSH) thinking blocks. Zero dependency on DSH internals, no slot, no renderer override, no session-log writes.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -43,7 +43,9 @@
     "translation",
     "chinese",
     "client-plugin",
-    "web-ui"
+    "web-ui",
+    "non-invasive",
+    "zero-dependency"
   ],
   "dependencies": {},
   "scripts": {
@@ -60,7 +62,7 @@
   "dshhub": {
     "schemaVersion": 1,
     "displayName": "dsh-ollama-session-translator",
-    "summary": "展开英文思考块即可在下方阅读中文译文。原文无污染、按块缓存、零运行时依赖，支持自定义翻译模型。",
+    "summary": "展开英文思考块即可在下方阅读中文译文。零依赖 DSH 内部 API、不占 slot 不碰渲染树、不写会话日志——DSH 升级不影响它，卸载无残留。",
     "categories": [
       "Web UI",
       "翻译",

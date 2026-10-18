@@ -40,6 +40,16 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 > **This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).**
 > Thanks to the original author. This fork adds the following on top of it:
 >
+> **Why it will not cause you trouble**
+>
+> - **Zero dependency on DSH internals**: not a single `@deepseek-ai/*` import in the repository, and `dependencies` is empty. When DSH restructures its internals, other plugins die with `import failed` — this one keeps running.
+> - **No render-tree surgery**: it claims no slot and replaces no official component; it only appends its own DOM node next to the thinking block. Worst case after a DSH UI change is that the translation quietly stops appearing, never a broken chat interface.
+> - **No session-data writes**: it does not write session logs, does not appear in trajectory views, and does not touch the KV cache or context compaction. Your context window stays byte-for-byte what it was before installing.
+> - **No leftovers**: the translation cache lives inside each session's own folder, so uninstalling the plugin or deleting a session removes it. There is no orphaned file in a third-party directory.
+> - **Compatibility**: verified on DSH Desktop 0.2.1-rc.2, but it only uses three stable APIs (`webServer`, `slots`, `locale`) and needed no change from the rc era through 0.2.1.
+>
+> **Feature highlights**
+>
 > - **Fallback route + silence watchdog**: when the primary route 504s, times out, or goes silent, retry once on a backup channel. The watchdog keys on "how long since the last new token" rather than total elapsed time (a total timeout kills slow-but-healthy requests).
 > - **Independent fallback chunk size**: paid channels have no length cap, so the backup route can use a larger chunk size. When the primary route is entirely down, one probe chunk decides the switch, instead of waiting out N x 30s gateway timeouts.
 > - **Built-in Index-Translate channel**: Bilibili's free translation API ships as a built-in channel ranked first in the provider list — no endpoint URL, no API key.
@@ -163,10 +173,22 @@ The plugin consists of two runtime boundaries:
 
 Why not use official slots: DSH does not offer a dedicated slot for individual thinking segments. Overriding `conversation.chat.node` would discard the entire assistant renderer. Lightweight DOM augmentation provides stable attachment without platform side-effects.
 
-Guarantees provided:
-1. **Zero Session Mutation**: Translation outputs are never written to conversation records, trajectory views, KV caches, or context compression pipelines.
+Four guarantees follow:
+
+1. **Zero Session Mutation**: Translation outputs are never written to conversation records, trajectory views, KV caches, or context compression pipelines. Your context window stays byte-for-byte what it was before installing.
 2. **Complete Cleanliness**: Disabling or removing the plugin restores the vanilla UI instantly.
 3. **Safe Degradation**: If DSH updates its DOM structure in future versions, the plugin fails silently without breaking chat interactions.
+4. **Version-proof**: it uses exactly three DSH APIs — `webServer` (route registration), `slots` (one settings card), and `locale` (zh/en strings). All three are stable surfaces, and every call is guarded by a `typeof === 'function'` check so a missing service silently skips that feature. It neither statically imports DSH internal packages nor reads or writes the DSH session-log format, so format migrations like v3 → v4 are none of its business.
+
+### Why the translation cache cannot pollute a session
+
+This is the most natural suspicion, so here is the detail. The cache file is named `cot-en2cn-translations.json` and sits inside the session directory.
+
+DSH's own session log is named `session.v4.jsonl.zstd` (or `session.v4.jsonl` uncompressed). When DSH looks up a session log it applies a strict filename match: after stripping the compression suffix the name must be `session` or `session.vN`, and it must end in `.jsonl`. `cot-en2cn-translations.json` satisfies none of the three, so DSH skips it outright.
+
+Moreover, reading a session opens exactly the one file that survived that filter — the directory is not enumerated. So the ~700 KB cache is invisible to both you and the model: it is only the plugin's own scratchpad.
+
+Deleting the session removes the cache with it. Nothing is left behind.
 
 ## Code Map & Reading Path
 
@@ -248,6 +270,12 @@ A: Decrease the "单块字符数" (Chunk character limit) in settings (e.g., to 
 
 **Q: Does translation output appear in Trajectory views?**
 A: No. The plugin only mounts visual nodes inside the active conversational chat view.
+
+**Q: Could the translation cache written into the session folder be fed to the model as context?**
+A: No. The cache file is `cot-en2cn-translations.json`, while DSH only recognises names like `session.v4.jsonl.zstd` — the name must match `session` or `session.vN` and end in `.jsonl`. Our filename satisfies none of the three, so DSH skips it when looking up session logs. Reading a session opens exactly one log file; the directory is never enumerated. See "Why the translation cache cannot pollute a session" above.
+
+**Q: Will this plugin break after a DSH upgrade?**
+A: It imports no DSH internal package, claims no slot, and never touches the render tree — only the three stable APIs `webServer` / `slots` / `locale`, each guarded by an existence check. After an upgrade the worst case is that a changed thinking-block DOM stops the translation from rendering; in other words it goes quiet rather than breaking your UI.
 
 **Q: Does it conflict with other UI extensions?**
 A: No. It occupies no predefined slot IDs and does not replace core renderers. Click events inside the translation block are captured and stopped from bubbling, preventing unintentional folding of parent thinking accordions.
