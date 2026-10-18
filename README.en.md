@@ -21,6 +21,15 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 - **Cost & Token Efficient**: Collapsed blocks are never translated; Chinese text is skipped automatically; translations are cached on both server and client.
 - **Zero Runtime Dependencies**: Uses Node.js standard library exclusively, importing zero third-party packages.
 
+> **This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).**
+> Thanks to the original author. This fork adds the following on top of it:
+>
+> - **Fallback route + silence watchdog**: when the primary route 504s, times out, or goes silent, retry once on a backup channel. The watchdog keys on "how long since the last new token" rather than total elapsed time (a total timeout kills slow-but-healthy requests).
+> - **Independent fallback chunk size**: paid channels have no length cap, so the backup route can use a larger chunk size. When the primary route is entirely down, one probe chunk decides the switch, instead of waiting out N x 30s gateway timeouts.
+> - **Built-in Index-Translate channel**: Bilibili's free translation API ships as a built-in channel ranked first in the provider list — no endpoint URL, no API key.
+> - **Rebuilt settings panel**: hand-drawn dropdowns (Electron closes native popups on any parent re-render), draft + manual save (Ctrl+S included), buffered number inputs, and per-route quota settings.
+> - **Environment adaptation**: adapted to DSH Desktop 0.2.1-rc.2 (relaxed same-origin checks in the desktop webview, sessions API differences, dual-strategy thinking-block DOM lookup).
+
 ## Requirements
 
 - DSH `>=0.1.0-rc.5`
@@ -31,7 +40,7 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 ### Install from GitHub (recommended)
 
 ```bash
-dsh plugin --profile web add github:Eyeing0721/dsh-cot-en2cn
+dsh plugin --profile desktop add github:2994650874-coder/dsh-ollama-session-translator
 ```
 
 If the download stalls in mainland China, set a proxy for the current shell first:
@@ -43,17 +52,17 @@ $env:HTTPS_PROXY = 'http://127.0.0.1:7897'
 ### Install from Local Directory (Development)
 
 ```bash
-dsh plugin --profile web add /path/to/deepseek-cot-en2cn
+dsh plugin --profile desktop add /path/to/deepseek-cot-en2cn
 ```
 
 > Note: If linked from a local directory, do not move or delete the source folder; otherwise, the plugin registration will break.
 
-After installing, **restart `dsh web`** and refresh your browser.
+After installing, **restart the DSH desktop app** and refresh your browser.
 
 ### Removal
 
 ```bash
-dsh plugin --profile web remove dsh-cot-en2cn
+dsh plugin --profile desktop remove dsh-cot-en2cn
 ```
 
 Configuration files stored under the storages directory are preserved upon removal.
@@ -70,34 +79,69 @@ Configuration files stored under the storages directory are preserved upon remov
 
 ## Configuration Options
 
-Configuration is stored at `$DSH_HOME/storages/cot-en2cn/config.json`. It is decoupled from `settings.yaml` to avoid schema validation dependencies. Manual edits to this JSON file are safe: all properties are validated and clamped to allowed ranges upon loading.
+Config file: `$DSH_HOME/storages/cot-en2cn/config.json` (not in `settings.yaml`, no schema library). Hand-editing it is safe: every value is validated and clamped on load.
 
-| Setting Name | Default | Description |
+### Panel layout
+
+Six cards plus a standalone save bar at the bottom:
+
+```text
+Status      active model / fallback route / fallback runs (each with a "Test" button)
+Basics      enabled, translate while thinking
+Mode        auto / manual, horizon rows
+Model       channel / provider, model, fetch model list
+Fallback    fallback channel, fallback model, fallback max chars per request, silence timeout
+Advanced    disable thinking, skip already-Chinese, folded translate,
+            target language, max chars per request, max reasoning length,
+            concurrency, translation font size
+Try it      paste English to preview
+──────────────────────────────────────────────────────────────
+Save bar    All changes saved            [Discard] [Save]
+```
+
+**The panel is draft-based with explicit save.** Every edit lands in a local draft; nothing is written until you press **Save** (or `Ctrl+S`). Unsaved changes are announced both in the header and in the save bar, and the Save button turns from grey to normal. After a successful save it returns to grey immediately, with no intermediate flash. **Discard** reverts to the server's current values.
+
+The preview box and both "Test" buttons evaluate the **current draft** without saving — the draft is used for that one request only and is never persisted.
+
+### Fields
+
+| Field | Default | Meaning |
 |---|---|---|
-| 启用 CoT 中文翻译 | 开 (On) | Master switch. Turning this off hides all translation panels immediately without affecting original content. |
-| 展开时自动翻译 | 开 (On) | When disabled, translations must be triggered manually per block via "翻译这段思考". |
-| 思考过程中也翻译 | 关 (Off) | Translates concurrently while the model is streaming tokens (increases token usage due to repetitive calls). |
-| Provider / 模型 | Empty | Both populated or both empty. **Empty = no translation** (the panel shows a "model not set" error); the paid default model is never used silently. A Provider of an Ollama endpoint URL (e.g. `http://127.0.0.1:11434`) connects to it **directly with zero configuration**; a registered DSH provider name routes through the DSH model channel. "Fetch Models" auto-discovers a local Ollama and its live models. Small, fast models are recommended. |
-| 关闭思考（推荐） | 开 (On) | Routes translation requests through DSH auxiliary channel (`purpose: session-title`) to avoid generating thinking tokens. **Only supported by DeepSeek official adapter**; behaves as a no-op on generic OpenAI-compatible proxies such as pi-ai. |
-| 目标语言 | 简体中文 | Target language. Options include 繁體中文, English, and 日本語. |
-| 单块字符数 | 3000 | Maximum character limit per chunk. Smaller values prevent max-tokens truncation at the expense of additional requests. |
-| 单次输入上限 | 24000 | Total character budget per thinking block (500~200000): beyond it only the first N characters are translated and the panel notes "only the first part was translated". Independent of the chunk size — chunks bound one request, this bounds the whole block. Raise it (e.g. 200000) for long chain-of-thought workloads. |
-| 并发请求数 | 2 | Maximum concurrent translation requests sent to the model. |
-| 单次超时 | 120 秒 | Request timeout in seconds. |
-| 服务端缓存条数 | 600 | Maximum number of chunk translations cached in the host process. |
-| 跳过已是中文的思考 | 开 (On) | Skips translation if the input is already detected as Chinese. |
-| 译文文字大小 | 13px | Font size for translation panels. |
+| Enable CoT translation | on | Master switch. Turning it off removes every panel; the original text is untouched. |
+| Translate while thinking | off | Translate while the model is still streaming (more model calls, more tokens). |
+| Translation mode | auto | Auto: translate thinking rows in view ± horizon. Manual: each block waits for a click. |
+| Horizon rows | 5 | In auto mode, translate N rows above and below the viewport. |
+| Channel / provider | empty | Which channel handles translation. The list is DSH's registered channels plus the **built-in Index-Translate (Bilibili, free)**. A "custom endpoint" toggle accepts an `http(s)://` URL for any OpenAI-compatible service. **Empty means no translation** — it never silently falls back to a paid default model. |
+| Model | empty | Model under the selected channel. Cleared when the channel changes. |
+| Fallback channel | empty | Channel to retry on when the primary route fails. Empty disables the fallback. |
+| Fallback model | empty | Same as above. |
+| Fallback max chars per request | 0 | The fallback route's own chunk size. Paid channels have no length cap, so a larger chunk means fewer requests. **0 follows the primary route.** |
+| Silence timeout | 5000 ms | If no new token arrives for this long, the call is treated as stuck and the fallback route takes over. The criterion is "time since last token", not total elapsed time — measured healthy streams have a median 26 ms gap and a 315 ms maximum, so 5000 ms carries a 14x margin. 0 disables the watchdog. |
+| Disable thinking (recommended) | on | Sends `reasoningEffort: "off"` so translation produces no hidden reasoning tokens. **Not every channel supports it**: unsupported routes are detected and retried without the field, then remembered. Measured: 3800 characters dropped from 27.2 s to 3.1 s. |
+| Skip already-Chinese reasoning | on | Skip blocks that are already Chinese. Threshold: at most 16 Latin letters, or CJK >= Latin x 6. Mixed content is always translated. |
+| Folded translate | off | Translate even while the block is collapsed (reads the source from the React fiber). |
+| Target language | zh-CN | Also 繁體中文 / English / 日本語. |
+| Max chars per request | 2000 | Characters sent to the provider **per request**. Free providers have a cap (Bilibili's model stops at 3000 characters); raise it after switching channels. Smaller is safer against max-tokens truncation but needs more requests. |
+| Max reasoning length per translation | 50000 | Total character cap for **one reasoning block** (500–200000). Beyond it the text is clipped at the last complete paragraph and everything past the cut is dropped, with a "source too long" note. |
+| Concurrency | 2 | Simultaneous provider requests. Free endpoints should stay at 2: measured 2 x 2000 characters is safe, 4 fails. |
+| Translation font size | 13px | Affects the translation panel only. |
+
+> **The two limits are independent.** `Max reasoning length` decides how much of one reasoning block is translated at all; `Max chars per request` decides how big each request is. Multiplying them is meaningless.
+
+> `timeoutMs` (total per-call timeout) and `cacheEntries` (server cache size) still live in the config file and are still used by the engine, but are **no longer exposed in the panel**: a total timeout kills slow-but-healthy requests (the watchdog owns that judgement now), and translations are injected into the session folder so the server-side LRU is only a per-session dedupe cache.
 
 ## Technical Architecture & Guarantees
 
 The plugin consists of two runtime boundaries:
-- **Host Process (`lib/index.js`)**: Registers six localhost-only, same-origin HTTP routes:
-  - `GET /dsh-cot-en2cn/state`
-  - `PUT /dsh-cot-en2cn/config`
-  - `POST /dsh-cot-en2cn/translate`
-  - `GET /dsh-cot-en2cn/providers`
-  - `GET /dsh-cot-en2cn/models`
-  - `POST /dsh-cot-en2cn/cache/clear`
+- **Host Process (`lib/index.js`)**: Registers eight localhost-only, same-origin HTTP routes:
+  - `GET /dsh-cot-en2cn/state` — config + counters + effective route
+  - `PUT /dsh-cot-en2cn/config` — write the whole config (the panel's only save path)
+  - `POST /dsh-cot-en2cn/translate` — translate one text (optional one-shot draft override)
+  - `GET /dsh-cot-en2cn/providers` — registered DSH channels
+  - `GET /dsh-cot-en2cn/models` — models under a channel
+  - `GET /dsh-cot-en2cn/catalog` — channel + model catalog (built-in channel first)
+  - `POST /dsh-cot-en2cn/test` — primary / fallback route connectivity check
+  - `POST /dsh-cot-en2cn/cache/clear` — clear the server cache
   Translations are dispatched via DSH's internal `ctx.llm.stream()`, reusing existing credentials and model profiles configured in DSH; when the Provider is an `http(s)://` endpoint the plugin talks to that Ollama's OpenAI-compatible API (`/v1/chat/completions`) directly, so a local model needs zero configuration. External and non-loopback requests are blocked.
 - **Browser Client (`lib/client.js`)**: Watches the active chat container using `MutationObserver`, anchors thinking blocks using the stable `data-variant="think"` attribute (with fallback class names), and mounts translation views directly into the DOM tree.
 
@@ -137,24 +181,25 @@ A: No. It occupies no predefined slot IDs and does not replace core renderers. C
 
 ## Quality Assurance
 
-The codebase includes 83 automated test assertions runnable without external testing frameworks:
+The codebase includes 79 automated assertions that run without any external testing framework:
 
 ```bash
 npm test
 ```
 
 Test suite breakdown:
-- `tools/smoke.mjs` (33 tests): Verifies chunking reversibility (concatenated chunks match original byte-for-byte), Chinese language detection, in-memory cache, concurrency throttling, duplicate in-flight request deduplication, failure categorizations, schema value clamping, and package manifest constraints.
-- `tools/host-integration.mjs` (14 tests): Mounts actual routes inside a simulated cordis container to validate state queries, translation handling, configuration writes, and loopback security boundaries.
-- `tools/parity-check.mjs` (5 tests): Compares custom request message payloads against DSH's `createUserMessage` structure to guarantee protocol compatibility.
-- `tools/browser-check.mjs` (31 tests): Runs genuine `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, duplicate request prevention, event propagation isolation, global disable cleanup, and configuration panel rendering.
+- `tools/smoke.mjs` (**53**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog), SSE stream parsing, and package manifest constraints.
+- `tools/select-safe-test.mjs` (**11**): idempotent panel writes (same value is never re-written), selection protection (deferred re-render while the user is selecting, at most one timer), and the already-Chinese badge contract.
+- `tools/host-integration.mjs` (**15**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, and loopback security boundaries.
+- `tools/parity-check.mjs`: compares the plugin's message payload against DSH's `createUserMessage` (skips automatically when `dsh-llm` is not resolvable).
+- `tools/browser-check.mjs`: loads the real `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, Chinese skipping, event-propagation isolation, instant cleanup on global disable, and panel rendering. **Requires a working browser**; it fails in browserless environments.
 
 ## Project Structure
 
 ```text
 dsh-cot-en2cn/
 ├── lib/
-│   ├── index.js              # Host half: config IO + the six same-origin routes
+│   ├── index.js              # Host half: config IO + the eight same-origin routes
 │   ├── engine.js             # Translation engine: chunk cache, gate, deadlines, failures
 │   ├── text.js               # Chunking and script detection (pure)
 │   ├── config.js             # Defaults and clamping
@@ -165,6 +210,7 @@ dsh-cot-en2cn/
 │   ├── browser-check.mjs     # Headless browser integration checks
 │   ├── host-integration.mjs  # Host route & context integration tests
 │   ├── parity-check.mjs      # Message protocol parity verification
+│   ├── select-safe-test.mjs  # Idempotent writes & selection protection
 │   └── smoke.mjs             # Unit and smoke test suite
 ├── cordis.patch.yml
 ├── package.json
@@ -173,16 +219,50 @@ dsh-cot-en2cn/
 └── LICENSE
 ```
 
-## Changelog (local enhancements)
+## Changelog (maintained fork)
 
 > This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).
 
+### 2026-10-19
+
+**Settings panel rebuilt**
+
+- **Hand-drawn dropdowns** (`custom-dropdown`): native `<select>` popups are drawn by the OS in Electron, and any parent re-render closes them ("it snaps shut the moment you pull it down"). DSH's global CSS also gives `select` a background arrow that tiles into "a wall of blue arrows" on wide controls. Replaced with a button plus an inline list; both problems disappear.
+- **Draft + manual save** (`manual-save`): every interaction used to `PUT /config` immediately — no undo, flicker between edits, and a 5-second poll fighting the writes. Edits now land in a local draft; only **Save** (or `Ctrl+S`) writes.
+- **Buffered number inputs** (`number-buffer`): typing `8000` used to fire four writes (`8/80/800/8000`); intermediate values were clamped to the minimum and out-of-order responses overwrote the final value ("it reverts to 0"). Now one commit on blur or Enter.
+- **Two-tone save button** (`save-button-tone`): grey (nothing to save) ↔ normal (pending changes), returning straight to grey after saving with no transition colour. The button stays white-but-disabled while saving so the sequence is white → white → grey rather than white → grey → grey.
+- **Standalone save bar** (`save-bar`): same width as the cards above, one row tall, sitting under the preview card.
+- **Status card slimmed** (`status-slim`): three rows only — what is in use and whether it works — each with a "Test" button.
+
+**Routing and quotas**
+
+- **Fallback route** (`fallback-route`): retry once on a backup channel, with its own cache key.
+- **Silence watchdog** (`fallback-route`): keyed on "time since the last new token" rather than total elapsed time; a total timeout kills slow-but-healthy requests (27 s and 36 s responses were observed).
+- **Independent fallback chunk size** (`fallback-chunk`): paid channels can use a larger chunk; when the primary route is down, one probe chunk decides the switch instead of waiting out N x 30 s gateway timeouts. Measured on 30k characters: one probe failure on the primary, then 4 successful fallback requests — versus 15 if the fallback also used 2000-character chunks.
+- **Per-route quotas**: primary and fallback each have their own max characters per request.
+
+**Built-in channel**
+
+- **Index-Translate (Bilibili, free)** (`builtin-index-translate`): not a registered DSH channel, so it ships as a built-in entry ranked first in `/catalog` — no endpoint URL, no API key. Three models: `Index-Translate-35B-A3B` (flagship), `index-mt-9b` (balanced), `index-mt-2b` (fastest). **Measured limits**: non-streaming requests above 3000 characters always 504; concurrency 2 x 2000 characters is the safe ceiling.
+
+**Engine corrections**
+
+- **Thinking-off mechanism fixed** (`thinking-off`): the old implementation set `purpose: 'session-title'` and assumed the adapter mapped it to a thinking-disabled request. **It does not** — `dsh-llm-deepseek`'s `serialize()` only reads `reasoningEffort`, and `purpose` only affects a `compaction` header. The switch had never taken effect. Now sends `reasoningEffort: 'off'` (what the official translator does) and degrades gracefully on channels that reject it.
+- **Boundary clipping** (`clip-boundary`): `slice(0, max)` used to cut mid-sentence; half a sentence yields half a translation. Now paragraph → line → sentence fallback.
+- **Endpoint mode uses SSE** (`endpoint-stream`): with `stream: false` the whole translation arrived at once, so the watchdog misjudged any healthy request slower than N seconds as stuck.
+
+**Upstream fixes carried forward**
+
+This fork already includes upstream's 2026-10-06 fixes and builds on them:
+- `select-safe`: idempotent writes plus selection protection (deferred re-render while selecting).
+- `retry-force`: `force` bypasses the per-chunk LRU, so "retranslate" no longer returns the identical cached text instantly.
+- `skip-policy`: tightened the already-Chinese threshold (`latin<=16 || cjk>=latin*6`); mixed Chinese/English content is always translated.
+
 ### 2026-10-06
 
-- **Partial selection works** (`select-safe`): fixed the translation body destroying in-progress text selections — idempotent rendering (no write when unchanged), `srcKey` bookkeeping on cache hits (breaks a self-sustaining 220ms rewrite loop), deferred writes while a selection is active.
-- **Retranslate really retranslates** (`retry-force`): `force` now bypasses the per-chunk LRU cache (previously long texts instantly got back an identical stale translation).
-- **Mixed Chinese/English content is translated** (`skip-policy`): tightened the already-Chinese shortcut (`latin<=16 || cjk>=latin*6`); skipped text is now labeled **"Already Chinese · left untranslated"** instead of masquerading as a translation.
-- Tests: smoke 40 / host-integration 16 / select-safe-test 11 all green.
+- **Selectable translation text** (`select-safe`): fixed selections jumping to the start and vanishing on mouse-up.
+- **"Retranslate" actually retranslates** (`retry-force`): `force` bypasses the per-chunk cache.
+- **Mixed content is translated** (`skip-policy`): tightened the skip threshold; skipped blocks now say "Already Chinese · not translated".
 
 ## License
 

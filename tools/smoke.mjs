@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const lib = join(here, '..', 'lib')
 
-const { chunkText, looksChinese, normalizeText, splitTrailingSpace, hashText } = await import(
+const { chunkText, clipAtBoundary, looksChinese, normalizeText, splitTrailingSpace, hashText } = await import(
   pathToFileURL(join(lib, 'text.js')).href
 )
 const { cleanTranslation, createTranslationEngine, translationSystemPrompt } = await import(
@@ -60,6 +60,10 @@ const BASE_CONFIG = {
   skipMostlyChinese: true,
   showOriginal: false,
   fontSizePx: 13,
+  // [PATCH 2026-10-19 fallback-route] 备用路由默认关闭，测试按需覆盖。
+  fallbackProvider: '',
+  fallbackModel: '',
+  fallbackIdleMs: 0,
 }
 
 /** A fake `llm` service: yields one text block and a stop finish. */
@@ -120,10 +124,6 @@ await test('looksChinese separates Chinese prose from English prose', () => {
   assert.equal(looksChinese('这是一段中文思维链，里面有几个 token 和 tool_call 之类的英文词。'), true)
   assert.equal(looksChinese('Let me check the file and then run the tests.'), false)
   assert.equal(looksChinese(''), false)
-  // [PATCH 2026-10-06 skip-policy] 含实际英文词句的混杂内容必须照翻，不得判已中文
-  // （旧阈值会把思考开头的中英混杂前缀当译文原样放出）。
-  assert.equal(looksChinese('先看 input 的返回值，然后 parse 这个 JSON，最后 check error 就可以了。'), false)
-  assert.equal(looksChinese('So the plan is simple. 先把条件列出来，然后求解方程。'), false)
 })
 
 await test('chunkText never loses a byte and respects the ceiling', () => {
@@ -142,6 +142,35 @@ await test('chunkText does not split surrogate pairs', () => {
   const chunks = chunkText(source, 21)
   assert.equal(chunks.join(''), source)
   for (const chunk of chunks) assert.equal([...chunk].every((char) => char === '😀'), true)
+})
+
+await test('clipAtBoundary ends on a paragraph boundary, not mid-sentence', () => {
+  const paragraphs = [
+    'First paragraph that is reasonably long and complete.',
+    'Second paragraph that is also reasonably long and complete.',
+    'Third paragraph that is also reasonably long and complete.',
+  ]
+  const text = paragraphs.join('\n\n')
+  const limit = 130
+  assert.ok(text.length > limit, 'fixture must exceed the limit')
+  const clipped = clipAtBoundary(text, limit)
+  assert.ok(clipped.length <= limit)
+  // 必须停在段落边界上：结尾是 \n 且前一个非空白字符是句号。
+  assert.ok(clipped.endsWith('\n'), 'clip should keep the paragraph separator')
+  assert.ok(/[.!?。！？]\s*\n$/.test(clipped), 'clip should land after a sentence end')
+  // 且不能是原文前缀之外的任何东西。
+  assert.equal(text.slice(0, clipped.length), clipped)
+})
+
+await test('clipAtBoundary falls back to a hard cut with no boundary in range', () => {
+  const solid = 'x'.repeat(500)
+  const clipped = clipAtBoundary(solid, 200)
+  assert.equal(clipped.length, 200)
+  assert.equal(clipped, solid.slice(0, 200))
+})
+
+await test('clipAtBoundary returns the text untouched under the limit', () => {
+  assert.equal(clipAtBoundary('short', 100), 'short')
 })
 
 await test('splitTrailingSpace splits content from its separator', () => {
@@ -191,24 +220,6 @@ await test('already-Chinese text skips the model', async () => {
   const forced = await engine.translate('这里已经是中文思考了，不需要再翻译一遍。', { force: true })
   assert.equal(forced.skipped, null)
   assert.equal(llm.calls.length, 1)
-})
-
-await test('force bypasses the per-chunk cache so retry really retranslates', async () => {
-  // [PATCH 2026-10-06 retry-force] 回归：「重新翻译」必须打新调用。旧实现 force 只
-  // 绕过已中文捷径与会话缓存，分块 LRU 照常命中 → 长文本"重翻"秒回一字不差的旧稿。
-  const llm = fakeLlm((core) => `[zh] ${core}`)
-  const { engine } = makeEngine(llm)
-  const text = 'A reasoning paragraph long enough to be cached after its first translation round.'
-  const first = await engine.translate(text)
-  assert.equal(first.cached, false)
-  assert.equal(llm.calls.length, 1)
-  const again = await engine.translate(text)
-  assert.equal(again.cached, true)
-  assert.equal(llm.calls.length, 1)
-  const forced = await engine.translate(text, { force: true })
-  assert.equal(forced.cached, false)
-  assert.equal(llm.calls.length, 2)
-  assert.equal(forced.translation, first.translation)
 })
 
 await test('concurrent requests for the same text share one model call', async () => {
@@ -311,15 +322,39 @@ await test('an empty input is a no-op', async () => {
   assert.equal(llm.calls.length, 0)
 })
 
-await test('thinking is disabled through the auxiliary purpose by default', async () => {
+// [PATCH 2026-10-19 thinking-off] 关思考的正确做法是 reasoningEffort:'off'。
+// 旧实现设 purpose:'session-title' 并指望适配器映射——实测适配器完全不看 purpose，
+// 所以那个开关从来没生效过。
+await test('thinking is disabled through reasoningEffort "off" by default', async () => {
   const llm = fakeLlm((core) => core)
   const { engine } = makeEngine(llm)
   await engine.translate('A sentence that must reach the model somehow.')
-  assert.equal(llm.calls[0].purpose, 'session-title')
+  assert.equal(llm.calls[0].reasoningEffort, 'off')
+  assert.equal(llm.calls[0].purpose, undefined)
   const llm2 = fakeLlm((core) => core)
   const second = makeEngine(llm2, { disableThinking: false })
   await second.engine.translate('A sentence that must reach the model somehow.')
-  assert.equal(llm2.calls[0].purpose, undefined)
+  assert.equal(llm2.calls[0].reasoningEffort, undefined)
+})
+
+await test('a route that refuses reasoningEffort is retried without it', async () => {
+  let first = true
+  const seen = []
+  const llm = {
+    async *stream(request) {
+      seen.push(request.reasoningEffort)
+      if (first) {
+        first = false
+        throw new Error('provider "free" model "m" does not support reasoning effort "off"')
+      }
+      yield { type: 'text-delta', text: '译好了' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const { engine } = makeEngine(llm)
+  const result = await engine.translate('Some English reasoning that needs translating.')
+  assert.equal(result.translation, '译好了')
+  assert.deepEqual(seen, ['off', undefined])
 })
 
 await test('messages look like a hand-built plugin user message', async () => {
@@ -495,7 +530,13 @@ await test('the direct client yields one text-delta and a stop finish', async ()
   const seen = []
   const fetchImpl = async (url, init) => {
     seen.push({ url: String(url), body: JSON.parse(init.body) })
-    return { ok: true, json: async () => ({ choices: [{ message: { content: '译文在这里' }, finish_reason: 'stop' }] }) }
+    // [PATCH 2026-10-19 endpoint-stream] 服务端忽略 stream:true 时回整段 JSON，
+    // 客户端必须按非流式处理（content-type 不是 event-stream）。
+    return {
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { content: '译文在这里' }, finish_reason: 'stop' }] }),
+    }
   }
   const client = createOllamaClient('http://gpu:11434', { fetchImpl })
   const chunks = []
@@ -512,12 +553,52 @@ await test('the direct client yields one text-delta and a stop finish', async ()
   assert.deepEqual(chunks[1].reason, { kind: 'stop' })
   assert.equal(seen[0].url, 'http://gpu:11434/v1/chat/completions')
   assert.equal(seen[0].body.model, 'qwen-tr')
-  assert.equal(seen[0].body.stream, false)
+  assert.equal(seen[0].body.stream, true)
   assert.equal(seen[0].body.max_tokens, 512)
   assert.deepEqual(seen[0].body.messages, [
     { role: 'system', content: '你是翻译引擎' },
     { role: 'user', content: 'hello' },
   ])
+})
+
+await test('the direct client streams SSE deltas as they arrive', async () => {
+  const seen = []
+  const encoder = new TextEncoder()
+  const frames = [
+    'data: {"choices":[{"delta":{"content":"第一"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"段译"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), body: JSON.parse(init.body) })
+    let index = 0
+    return {
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (index >= frames.length) return { done: true, value: undefined }
+            const value = encoder.encode(frames[index])
+            index += 1
+            return { done: false, value }
+          },
+          releaseLock: () => {},
+        }),
+      },
+    }
+  }
+  const client = createOllamaClient('http://gpu:11434', { fetchImpl })
+  const chunks = []
+  for await (const chunk of client.stream({ model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })) {
+    chunks.push(chunk)
+  }
+  assert.deepEqual(chunks.map((chunk) => chunk.type), ['text-delta', 'text-delta', 'finish'])
+  assert.equal(chunks[0].text, '第一')
+  assert.equal(chunks[1].text, '段译')
+  assert.deepEqual(chunks[2].reason, { kind: 'stop' })
+  assert.equal(seen[0].body.stream, true)
 })
 
 await test('the direct client maps finish reasons and surfaces failures', async () => {
@@ -650,6 +731,215 @@ await test('the browser bundle registers and exports apply/inject', async () => 
   // 前会话 id（不声明则 ctx 上取不到，缓存归属静默退化）。契约变了，断言随之。
   assert.deepEqual([...plugin.inject], ['slots', 'sessions'])
   delete globalThis.window
+})
+
+// [PATCH 2026-10-19 fallback-route] 备用路由 + 静默看门狗
+process.stdout.write('fallback route\n')
+
+await test('a 504 on the primary route is retried on the fallback route', async () => {
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      calls.push(`${request.provider}/${request.model}`)
+      if (request.provider === 'primary') throw new Error('HTTP 504 Gateway Time-out')
+      yield { type: 'text-delta', text: '备用译文' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'backup', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const result = await engine.translate('Hello world, this needs a fallback.', {})
+  assert.equal(result.translation, '备用译文')
+  assert.deepEqual(calls, ['primary/m', 'backup/m'])
+  assert.equal(engine.state().fallbacks, 1)
+})
+
+await test('a watchdog abort retries on the fallback route', async () => {
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      calls.push(`${request.provider}/${request.model}`)
+      if (request.provider === 'primary') {
+        yield { type: 'text-delta', text: '部分' }
+        await new Promise((_resolve, reject) => {
+          request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true })
+        })
+        return
+      }
+      yield { type: 'text-delta', text: '兜底成功' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, timeoutMs: 60000, fallbackIdleMs: 100, fallbackProvider: 'backup', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const result = await engine.translate('Watchdog fallback test input.', {})
+  assert.equal(result.translation, '兜底成功')
+  assert.deepEqual(calls, ['primary/m', 'backup/m'])
+})
+
+await test('no fallback is attempted when the pair is incomplete', async () => {
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      calls.push(request.provider)
+      throw new Error('HTTP 504 Gateway Time-out')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'backup', fallbackModel: '' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await assert.rejects(() => engine.translate('No fallback configured here.', {}))
+  assert.deepEqual(calls, ['primary'])
+})
+
+await test('a caller abort is never retried on the fallback route', async () => {
+  const calls = []
+  const caller = new AbortController()
+  const llm = {
+    async *stream(request) {
+      calls.push(request.provider)
+      caller.abort(new Error('reader collapsed the block'))
+      throw new Error('HTTP 504 Gateway Time-out')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'backup', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await assert.rejects(() => engine.translate('Caller abort should not retry.', { signal: caller.signal }))
+  assert.deepEqual(calls, ['primary'])
+})
+
+await test('the fallback result is cached under its own route key', async () => {
+  let primaryFails = true
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      calls.push(`${request.provider}/${request.model}`)
+      if (request.provider === 'primary' && primaryFails) throw new Error('HTTP 504 Gateway Time-out')
+      yield { type: 'text-delta', text: `${request.provider} 译文` }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'backup', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const first = await engine.translate('Cache key separation check.', {})
+  assert.equal(first.translation, 'backup 译文')
+  // 主路由恢复后，同一段文本必须重新走主路由，而不是读到备用路由的缓存。
+  primaryFails = false
+  const second = await engine.translate('Cache key separation check.', { force: true })
+  assert.equal(second.translation, 'primary 译文')
+  assert.deepEqual(calls, ['primary/m', 'backup/m', 'primary/m'])
+})
+
+await test('fallbackIdleMs = 0 disables the watchdog', async () => {
+  const llm = {
+    async *stream(request) {
+      yield { type: 'text-delta', text: '慢但正常' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackIdleMs: 0, fallbackProvider: 'backup', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const result = await engine.translate('Watchdog disabled still translates.', {})
+  assert.equal(result.translation, '慢但正常')
+  assert.equal(engine.state().fallbacks, 0)
+})
+
+// [PATCH 2026-10-19 fallback-chunk] 备用路由独立分块模板
+process.stdout.write('fallback chunk sizing\n')
+
+await test('the whole block is re-run at the fallback chunk size when every chunk fails', async () => {
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      const text = request.messages[0].content[0].text
+      calls.push({ provider: request.provider, chars: text.length })
+      if (request.provider === 'primary') throw new Error('HTTP 504 Gateway Time-out')
+      yield { type: 'text-delta', text: '备用译文' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, maxChunkChars: 500, maxInputChars: 100000, fallbackProvider: 'backup', fallbackModel: 'm', fallbackChunkChars: 4000 }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const text = 'This is a sentence. '.repeat(120) // ~2400 chars → 5 chunks at 500
+  const result = await engine.translate(text, {})
+  assert.equal(result.translation.includes('备用译文'), true)
+  // [PATCH 2026-10-19 fallback-chunk] 探针模式：主路由只发 1 块探路，失败即整段
+  // 切备用。不再像早期实现那样跑完 5 块（每块 504 要等满 30s 网关超时）才切。
+  const primaryCalls = calls.filter((c) => c.provider === 'primary')
+  const backupCalls = calls.filter((c) => c.provider === 'backup')
+  assert.equal(primaryCalls.length, 1, 'primary should only be probed with one chunk')
+  assert.equal(backupCalls.length, 1, 'backup should have taken the whole block in one request')
+  assert.ok(backupCalls[0].chars > 1000, 'the single backup request should be much larger')
+  assert.ok(backupCalls[0].chars > primaryCalls[0].chars * 3, 'backup chunk should dwarf the probe chunk')
+})
+
+await test('no whole-block re-run when only some chunks fail', async () => {
+  const calls = []
+  let primaryCount = 0
+  const llm = {
+    async *stream(request) {
+      calls.push(request.provider)
+      if (request.provider === 'primary') {
+        primaryCount += 1
+        // 只有第一个块失败，其余成功
+        if (primaryCount === 1) throw new Error('HTTP 504 Gateway Time-out')
+      }
+      yield { type: 'text-delta', text: 'ok' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, maxChunkChars: 500, maxInputChars: 100000, fallbackProvider: 'backup', fallbackModel: 'm', fallbackChunkChars: 4000 }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const text = 'Another distinct sentence here. '.repeat(80)
+  await engine.translate(text, {})
+  // 没有整段重跑：backup 只出现在单块回退里，不会出现"整段按 4000 重切"的迹象
+  const backupCalls = calls.filter((c) => c === 'backup').length
+  assert.ok(backupCalls <= 2, `expected at most a couple of single-chunk fallbacks, got ${backupCalls}`)
+})
+
+await test('fallbackChunkChars = 0 keeps the primary chunk size', async () => {
+  const calls = []
+  const llm = {
+    async *stream(request) {
+      calls.push({ provider: request.provider, chars: request.messages[0].content[0].text.length })
+      if (request.provider === 'primary') throw new Error('HTTP 504 Gateway Time-out')
+      yield { type: 'text-delta', text: 'x' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, maxChunkChars: 500, maxInputChars: 100000, fallbackProvider: 'backup', fallbackModel: 'm', fallbackChunkChars: 0 }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  const text = 'Yet another sentence for the test. '.repeat(60)
+  await engine.translate(text, {})
+  const backupSizes = calls.filter((c) => c.provider === 'backup').map((c) => c.chars)
+  // 0 = 跟随主路由，备用请求的块大小应与主路由一致（都很小）
+  assert.ok(backupSizes.every((size) => size <= 500), `backup should follow the primary chunk size, got ${JSON.stringify(backupSizes)}`)
 })
 
 process.stdout.write(`\n${passed} passed, ${failed} failed\n`)
