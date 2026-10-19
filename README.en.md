@@ -280,6 +280,21 @@ A: It imports no DSH internal package, claims no slot, and never touches the ren
 **Q: Does it conflict with other UI extensions?**
 A: No. It occupies no predefined slot IDs and does not replace core renderers. Click events inside the translation block are captured and stopped from bubbling, preventing unintentional folding of parent thinking accordions.
 
+**Q: Which name goes in the remove/upgrade command — `dsh-session-translator` or `dsh-cot-en2cn`?**
+A: **Use the repository name, `dsh-session-translator`.** The plugin is loaded by
+repository, so the profile's `dependencies` and `dsh.profile.bundles` both record
+the repository name:
+
+```bash
+dsh plugin --profile desktop add    https://github.com/2994650874-coder/dsh-session-translator.git
+dsh plugin --profile desktop remove dsh-session-translator
+```
+
+`dsh-cot-en2cn` is the **technical package name** (`package.json`'s `name`). It is
+also the npm package name, the cordis plugin id, the `/dsh-cot-en2cn/*` route prefix
+and the `storages/cot-en2cn` config directory. It is **not** the load name — running
+`remove dsh-cot-en2cn` will not remove the plugin. Two separate naming systems.
+
 ## Quality Assurance
 
 The codebase includes 79 automated assertions that run without any external testing framework:

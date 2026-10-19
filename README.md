@@ -290,6 +290,19 @@ A: 它不 import 任何 DSH 内部包、不占 slot、不碰渲染树，只用�
 **Q: 会与其它 Web 插件冲突吗？**
 A: 不会。插件不占用任何 slot 插槽，不替换既有渲染器。译文面板内按钮的点击事件均在捕获阶段拦截，不会误触发宿主思考块的展开或折叠。
 
+**Q: 卸载/升级命令里的名字到底该写哪个？`dsh-session-translator` 还是 `dsh-cot-en2cn`？**
+A: **写仓库名 `dsh-session-translator`**。插件是按仓库装载的，装进来后 profile 的
+`dependencies` 与 `dsh.profile.bundles` 里记的都是仓库名：
+
+```bash
+dsh plugin --profile desktop add    https://github.com/2994650874-coder/dsh-session-translator.git
+dsh plugin --profile desktop remove dsh-session-translator
+```
+
+`dsh-cot-en2cn` 是**技术包名**（`package.json` 的 `name`），它同时是 npm 包名、
+cordis 插件 id、`/dsh-cot-en2cn/*` 路由前缀与 `storages/cot-en2cn` 配置目录。
+它**不是**装载名，用 `remove dsh-cot-en2cn` 会卸不掉。两者是两套命名，别混。
+
 ## 质量保证
 
 项目内置 79 项可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：

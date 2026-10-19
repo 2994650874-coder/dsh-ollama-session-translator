@@ -18,8 +18,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -45,18 +45,77 @@ if (chrome === undefined) {
   process.exit(0)
 }
 
-const REACT_UMD = [
-  'P:\\dsh\\home\\profiles\\web\\node_modules\\react\\umd\\react.development.js',
-  '/usr/lib/node_modules/react/umd/react.development.js',
-]
-const REACT_DOM_UMD = [
-  'P:\\dsh\\ytai-replica\\_tools\\node_modules\\react-dom\\umd\\react-dom.development.js',
-  'P:\\dsh\\home\\profiles\\web\\node_modules\\react-dom\\umd\\react-dom.development.js',
-]
+// [PATCH 2026-10-19 portable-react-umd] 原来这里硬编码了 P:\\dsh\\... 这类
+// 原作者个人路径。路径不存在时**不报错**，而是让 settings fixture 被静默跳过
+// （输出只剩一行 "skip no React UMD build found"），第三方机器等于少测一半且
+// 毫无提示。改成按优先级解析：显式参数 → 本机 DSH profile → 常见全局路径 →
+// 临时目录缓存 → 联网拉取，全失败才跳过（并且这次会**明确说出来**）。
 const firstExisting = (candidates) => candidates.find((candidate) => existsSync(candidate))
 
-const reactFile = firstExisting(REACT_UMD)
-const reactDomFile = firstExisting(REACT_DOM_UMD)
+/** DSH profile 的 node_modules 里通常有 react / react-dom（DSH 桌面版自带）。 */
+function dshProfileReactCandidates() {
+  const home = process.env.DSH_HOME || join(homedir(), '.dsh')
+  const react = []
+  const reactDom = []
+  for (const profile of ['desktop', 'web']) {
+    const nm = join(home, 'profiles', profile, 'node_modules')
+    for (const file of ['react.development.js', 'react.production.min.js']) {
+      react.push(join(nm, 'react', 'umd', file))
+    }
+    for (const file of ['react-dom.development.js', 'react-dom.production.min.js']) {
+      reactDom.push(join(nm, 'react-dom', 'umd', file))
+    }
+  }
+  return { react, reactDom }
+}
+
+const profileUmd = dshProfileReactCandidates()
+
+const REACT_UMD = [
+  ...(process.env.COT_EN2CN_REACT ? [process.env.COT_EN2CN_REACT] : []),
+  ...profileUmd.react,
+  '/usr/lib/node_modules/react/umd/react.development.js',
+  '/usr/local/lib/node_modules/react/umd/react.development.js',
+]
+const REACT_DOM_UMD = [
+  ...(process.env.COT_EN2CN_REACT_DOM ? [process.env.COT_EN2CN_REACT_DOM] : []),
+  ...profileUmd.reactDom,
+  '/usr/lib/node_modules/react-dom/umd/react-dom.development.js',
+  '/usr/local/lib/node_modules/react-dom/umd/react-dom.development.js',
+]
+
+/** 联网拉 UMD 到临时目录（CDN 走 unpkg，与 live-lock-check.mjs 同一策略）。 */
+async function fetchUmd(dir, name, url) {
+  const target = join(dir, name)
+  if (existsSync(target)) return target
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    if (!res.ok) return undefined
+    writeFileSync(target, await res.text(), 'utf8')
+    return target
+  } catch {
+    return undefined
+  }
+}
+
+// 本地都找不到时联网兜底，避免"静默少测一半"。
+let reactFile = firstExisting(REACT_UMD)
+let reactDomFile = firstExisting(REACT_DOM_UMD)
+if (reactFile === undefined || reactDomFile === undefined) {
+  const umdCache = mkdtempSync(join(tmpdir(), 'cot-en2cn-react-'))
+  if (reactFile === undefined) {
+    reactFile = await fetchUmd(umdCache, 'react.development.js', 'https://unpkg.com/react@18/umd/react.development.js')
+  }
+  if (reactDomFile === undefined) {
+    reactDomFile = await fetchUmd(umdCache, 'react-dom.development.js', 'https://unpkg.com/react-dom@18/umd/react-dom.development.js')
+  }
+  // 明确告知走了哪条路，别让人以为测的是"仓库自带 React"。
+  if (reactFile !== undefined && reactDomFile !== undefined) {
+    process.stdout.write(`react UMD: fetched to ${umdCache}\n`)
+  } else {
+    process.stdout.write('react UMD: not found locally and the CDN fetch failed\n')
+  }
+}
 
 // ------------------------------------------------------------------ stub host
 
@@ -396,11 +455,19 @@ function settingsHtml() {
         await new Promise(function (resolve) { setTimeout(resolve, 80) })
       }
       var rendered = document.getElementById('root').textContent
+      // [PATCH 2026-10-19 stale-settings-assertions] 这几条断言写的是第十轮之前
+      // 的旧面板（"展开时自动翻译" / "用默认模型" / 配置文件路径行），那些文案与
+      // 控件早已在面板重做时删除，断言却没人更新 —— 结果永远 FAIL，掩盖真实回归。
+      // 现在改成断言**当前面板的稳定锚点**：六张卡片标题 + 保存栏 + 关键控件。
       log('renders the status card', rendered.indexOf('fake / fake-1') !== -1, rendered.slice(0, 60))
-      log('renders the config path', rendered.indexOf('cot-en2cn') !== -1 && rendered.indexOf('config.json') !== -1)
-      log('renders basic switches', rendered.indexOf('启用 CoT 中文翻译') !== -1 && rendered.indexOf('展开时自动翻译') !== -1)
-      log('renders model fields', rendered.indexOf('翻译模型') !== -1 && rendered.indexOf('拉取模型列表') !== -1 && rendered.indexOf('用默认模型') !== -1)
-      log('renders advanced knobs', rendered.indexOf('目标语言') !== -1 && rendered.indexOf('单块字符数') !== -1 && rendered.indexOf('并发请求数') !== -1)
+      log('renders six group cards',
+        ['基础', '翻译模式', '翻译模型', '备用路由', '高级', '试译'].every(function (name) {
+          return rendered.indexOf(name) !== -1
+        }))
+      log('renders basic switches', rendered.indexOf('启用 CoT 中文翻译') !== -1 && rendered.indexOf('思考过程中也翻译') !== -1)
+      log('renders model fields', rendered.indexOf('翻译模型') !== -1 && rendered.indexOf('拉取模型列表') !== -1)
+      log('renders advanced knobs', rendered.indexOf('目标语言') !== -1 && rendered.indexOf('单次请求上限') !== -1 && rendered.indexOf('并发请求数') !== -1)
+      log('renders the save bar', rendered.indexOf('保存') !== -1 && rendered.indexOf('放弃改动') !== -1)
       log('renders the test box', rendered.indexOf('试译') !== -1)
       log('renders no crash text', rendered.indexOf('Something went wrong') === -1)
 
@@ -428,6 +495,8 @@ function settingsHtml() {
 
 let passed = 0
 let failed = 0
+// [PATCH 2026-10-19 portable-react-umd] 跳过的 section 数：跳了不等于过了。
+let skipped = 0
 
 function check(name, ok, detail) {
   if (ok === true) {
@@ -516,11 +585,21 @@ try {
       for (const entry of settingsReport) check(entry.name, entry.ok, entry.detail)
     }
   } else {
-    process.stdout.write('settings section\n  skip no React UMD build found\n')
+    // [PATCH 2026-10-19 portable-react-umd] 原来是静默 skip，第三方机器根本
+    // 不知道少测了一半。改成明确写出"跳过了什么、怎么补"，并计为跳过项。
+    process.stdout.write(
+      'settings section\n  SKIP no React UMD build found (settings panel NOT verified)\n' +
+        '       fix: set COT_EN2CN_REACT / COT_EN2CN_REACT_DOM to the UMD files, or\n' +
+        '            install react + react-dom into the DSH profile node_modules\n',
+    )
+    skipped += 1
   }
 } finally {
   httpServer.close()
 }
 
-process.stdout.write(`\n${passed} passed, ${failed} failed\n`)
+process.stdout.write(`\n${passed} passed, ${failed} failed${skipped > 0 ? `, ${skipped} skipped` : ''}\n`)
+if (skipped > 0) {
+  process.stdout.write('note: skipped sections were NOT verified — do not treat this run as a full pass\n')
+}
 if (failed > 0) process.exitCode = 1
