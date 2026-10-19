@@ -343,9 +343,19 @@ dsh-session-translator/
 ## Version History
 
 **Current version `0.2.1`, aligned with the official DSH release number.**
+
+Versioning rules:
+
+- **The base version always follows DSH** — when DSH releases `0.2.1`, we are `0.2.1`
+- **Local features append a fourth component with a hyphen** — `0.2.1-1`, `0.2.1-2`, …
+- **Fixes do not bump the version** — they ship as plain commits and are folded into the next feature release
+
+> Why a hyphen and not a dot: `0.2.1.1` is not valid semver and is rejected by npm,
+> Dependabot and CI. `0.2.1-1` is a standard prerelease — exactly "a local variant of 0.2.1".
+
 `0.1.0` is the original author's version of
 [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn);
-`0.1.1` – `0.1.6` record the locally enhanced fork's iterations between 0.1.0 and 0.2.1.
+`0.1.1` – `0.1.6` are the historical numbers of the locally enhanced fork.
 
 | Version | Date | Theme | Highlights |
 |---|---|---|---|
@@ -356,7 +366,7 @@ dsh-session-translator/
 | `0.1.4` | 2026-10-19 | Error notice translation | Interventional translation of Harness turn-failure notices; panel border fix; plugin page title renamed |
 | `0.1.5` | 2026-10-19 | Channel adaptation & stability | Streaming locked by channel type; browser-check portability; model dropdown row height fix |
 | `0.1.6` | 2026-10-20 | Identity unification & panel usability | Package/routes/storage renamed to dsh-session-translator; save bar moved to the top; description rewritten around capabilities |
-| **`0.2.1`** | 2026-10-20 | **Current** | Version aligned with DSH; bilingual plugin description; versioning scheme established |
+| **`0.2.1`** | 2026-10-20 | **Current** | Aligned with DSH; bilingual plugin description; versioning scheme established |
 
 ## Changelog (maintained fork)
 
