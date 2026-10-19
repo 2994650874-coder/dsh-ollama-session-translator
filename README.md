@@ -357,7 +357,7 @@ dsh-session-translator/
 
 ## 版本演进
 
-**当前版本 `0.2.1`，与 DSH 官方版本号对齐。**
+**当前版本 `0.2.1-1`，与 DSH 官方版本号对齐。**
 
 版本号规则：
 
@@ -380,15 +380,17 @@ dsh-session-translator/
 | `0.1.4` | 2026-10-19 | 系统报错翻译 | 为 Harness 的运行失败提示提供介入式翻译；修复译文框样式；插件页显示名改为 dsh-session-translator |
 | `0.1.5` | 2026-10-19 | 渠道适配与稳定性 | 流式翻译按渠道类型锁定；browser-check 去硬编码；模型下拉行高修复 |
 | `0.1.6` | 2026-10-20 | 技术名统一 + 面板可用性 | 包名/路由/存储目录全量改为 dsh-session-translator；保存栏移到顶部；插件描述改为卖点导向 |
-| **`0.2.1`** | 2026-10-20 | **当前版本** | 与 DSH 官方对齐；插件描述中英双语；版本体系建立 |
+| `0.2.1` | 2026-10-20 | 与官方对齐 | 与 DSH 官方对齐；插件描述中英双语；版本体系建立 |
+| `0.2.1-1` | 2026-10-20 | **当前版本 · npm 首发** | 生命周期收口（dispose）；`author` 改为本分支维护者、原作者移入 `contributors`；首次发布到 npm（prerelease 通道） |
 
 ## 更新日志（本地增强分支）
 
 > 本仓库是 [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn) 的维护分支（fork），以下为分支上的增强。
 
-### 未发布（下次功能版一起发）
+### 2026-10-20
 
-- **生命周期收口**（`dispose`）：修复 inline translator 从不拆除自己建的资源 —— `startTranslator()` 会挂 1 个 `MutationObserver`（监听 `document.body` 全树）、3 个 document 级 listener、1 个 15 秒轮询定时器和 1 个 220ms 同步定时器，而整个 `client.js` 里 `disconnect()` 一次都没被调用过。`dsh-client-hmr` 只重载模块不刷新页面，所以每次热替换都会**再叠一套**进去，且旧的那套仍在跑。现在 `startTranslator` 改由 `ctx.effect()` 包裹并在返回的清理函数里拆除，`visibilitychange` 与 `locale.subscribe` 也改成具名可退订。**只看这一次提交的读者注意**：这是资源生命周期修复，不改译文行为，也不改版本号。
+- **生命周期收口**（`dispose`）：`startTranslator()` 建的 8 项资源（1 个 `MutationObserver` 监听整个 `document.body`、3 个 document 级 listener、1 个 15 秒轮询、1 个 220ms 同步定时器、1 个 locale 订阅、1 个 visibilitychange 匿名监听）此前**没有任何拆除路径**，`disconnect()` 在整个 `client.js` 里一次都没被调用。`dsh-client-hmr` 只重载模块不刷新页面，所以每次热替换都会再叠一套、旧的还在跑。现在 `startTranslator` 由 `ctx.effect()` 包裹，清理函数里逐一拆除；`visibilitychange` 与 `locale.subscribe` 改具名可退订。译文行为不变。
+- **署名**：`author` 从上游 `Eyeing0721` 改为本分支维护者 `maomao299`，原作者移入 `contributors`（MIT 署名要求照旧满足，LICENSE 写的是 `dsh-cot-en2cn contributors`）。
 
 ### 2026-10-19
 

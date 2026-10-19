@@ -342,7 +342,7 @@ dsh-session-translator/
 
 ## Version History
 
-**Current version `0.2.1`, aligned with the official DSH release number.**
+**Current version `0.2.1-1`, aligned with the official DSH release number.**
 
 Versioning rules:
 
@@ -366,15 +366,17 @@ Versioning rules:
 | `0.1.4` | 2026-10-19 | Error notice translation | Interventional translation of Harness turn-failure notices; panel border fix; plugin page title renamed |
 | `0.1.5` | 2026-10-19 | Channel adaptation & stability | Streaming locked by channel type; browser-check portability; model dropdown row height fix |
 | `0.1.6` | 2026-10-20 | Identity unification & panel usability | Package/routes/storage renamed to dsh-session-translator; save bar moved to the top; description rewritten around capabilities |
-| **`0.2.1`** | 2026-10-20 | **Current** | Aligned with DSH; bilingual plugin description; versioning scheme established |
+| `0.2.1` | 2026-10-20 | Aligned with DSH | Aligned with DSH; bilingual plugin description; versioning scheme established |
+| `0.2.1-1` | 2026-10-20 | **Current · first npm release** | Lifecycle teardown (`dispose`); `author` moved to the fork maintainer with the original author in `contributors`; first npm publication (prerelease channel) |
 
 ## Changelog (maintained fork)
 
 > This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).
 
-### Unreleased (ships with the next feature release)
+### 2026-10-20
 
-- **Lifecycle teardown** (`dispose`): the inline translator never released what it created. `startTranslator()` attaches one `MutationObserver` on `document.body` (`childList` + `subtree`), three document-level listeners, a 15-second polling timer and a 220 ms sync timer — and `disconnect()` was never called anywhere in `client.js`. Because `dsh-client-hmr` reloads a module without reloading the page, every hot swap **stacked another set** on top of a still-running one. `startTranslator` is now wrapped in `ctx.effect()`, whose returned disposer tears everything down; the `visibilitychange` handler and the `locale.subscribe` subscription are named and unsubscribable. Translation behaviour is unchanged, so the version is not bumped.
+- **Lifecycle teardown** (`dispose`): the eight resources `startTranslator()` creates (a `MutationObserver` on all of `document.body`, three document-level listeners, a 15-second poll, a 220 ms sync timer, a locale subscription and an anonymous `visibilitychange` listener) had **no teardown path** — `disconnect()` was never called anywhere in `client.js`. `dsh-client-hmr` reloads a module without reloading the page, so every hot swap stacked another set on top of a still-running one. `startTranslator` is now wrapped in `ctx.effect()`, whose disposer tears everything down; `visibilitychange` and `locale.subscribe` are named and unsubscribable. Translation behaviour is unchanged.
+- **Attribution**: `author` moved from upstream `Eyeing0721` to the fork maintainer `maomao299`, with the original author in `contributors` (MIT attribution is still satisfied — LICENSE names `dsh-cot-en2cn contributors`).
 
 ### 2026-10-19
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-translator",
-  "version": "0.2.1",
+  "version": "0.2.1-1",
   "description": "Translates English thinking blocks into Chinese using the model channels already configured in Harness — no separate setup. Translations persist with the session (no repeat cost, no leftovers), a fallback route takes over when the primary fails, and system error notices are translated too. Zero runtime dependencies.",
   "type": "module",
   "main": "./lib/index.js",
