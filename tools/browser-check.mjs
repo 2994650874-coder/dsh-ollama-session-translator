@@ -518,6 +518,38 @@ function settingsHtml() {
       log('renders the test box', rendered.indexOf('试译') !== -1)
       log('renders no crash text', rendered.indexOf('Something went wrong') === -1)
 
+      // [PATCH 2026-10-20 save-bar-top] 回归：保存栏必须在**第一张卡片之前**。
+      // 曾经它在 6 张卡片之后、面板最底部（整页高近 1800px），改完任意一项都得
+      // 滚到底才能保存，使用者反馈"保存按钮很难发现"。现在固定在状态区正下方。
+      //
+      // 定位方式：设置面板没有 PANEL_ATTR（那个属性只给译文面板用），
+      // 所以从 #root 往下找「直接包含 6 个 section 的那个 div」= styles.panel。
+      {
+        var panelEl = null
+        var candidates = Array.prototype.slice.call(document.querySelectorAll('#root div'))
+        for (var c = 0; c < candidates.length; c += 1) {
+          var secCount = 0
+          for (var k = 0; k < candidates[c].children.length; k += 1) {
+            if (candidates[c].children[k].tagName.toLowerCase() === 'section') secCount += 1
+          }
+          if (secCount >= 6) { panelEl = candidates[c]; break }
+        }
+        var saveIndex = -1
+        var firstCardIndex = -1
+        if (panelEl !== null) {
+          var nodes = Array.prototype.slice.call(panelEl.children)
+          for (var n = 0; n < nodes.length; n += 1) {
+            if (firstCardIndex === -1 && nodes[n].tagName.toLowerCase() === 'section') firstCardIndex = n
+            if (saveIndex === -1 && nodes[n].textContent.indexOf('放弃改动') !== -1) saveIndex = n
+          }
+        }
+        log('settings panel found', panelEl !== null)
+        log('save bar sits above the first card', saveIndex !== -1 && firstCardIndex !== -1 && saveIndex < firstCardIndex,
+          'saveIndex=' + saveIndex + ' firstCard=' + firstCardIndex)
+        log('save bar is not last', panelEl !== null && saveIndex !== -1 && saveIndex < panelEl.children.length - 1,
+          panelEl === null ? 'no panel' : saveIndex + '/' + panelEl.children.length)
+      }
+
       var buttons = Array.prototype.slice.call(document.querySelectorAll('#root button'))
       log('has buttons', buttons.length >= 3, buttons.length)
       var clearButton = buttons.filter(function (button) { return button.textContent.indexOf('清空服务端缓存') !== -1 })[0]
