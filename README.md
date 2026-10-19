@@ -1,4 +1,4 @@
-# dsh-ollama-session-translator
+# dsh-session-translator
 
 > **本仓库是 [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn) 的维护分支（fork）。**
 > 感谢原作者 Eyeing0721。本分支在其基础上做了以下增强，由本人长期维护迭代：
@@ -26,7 +26,7 @@
 > - **设置面板重做**：自绘下拉（规避 Electron 原生弹层被父级重渲染关闭）、草稿 + 手动保存（含 Ctrl+S）、数字框缓冲提交（规避每按键一次写盘导致的回显覆盖）、按主/备路由分离的额度设置；
 > - **环境适配**：已适配 DSH Desktop 0.2.1-rc.2（桌面 webview 同源校验放宽、sessions API 差异适配、思考块 DOM 双保险定位）。
 >
-> 安装：`dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-ollama-session-translator.git`
+> 安装：`dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-session-translator.git`
 
 DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展开那个「思考」块，中文译文直接出现在原文下方；原文一个字节都不改。
 
@@ -76,7 +76,7 @@ DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展�
 ### 从 GitHub 安装（推荐）
 
 ```bash
-dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-ollama-session-translator.git
+dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-session-translator.git
 ```
 
 国内网络如果卡在下载那一步，先给当前终端设好代理再执行：
@@ -112,7 +112,7 @@ dsh plugin --profile desktop remove dsh-session-translator
    - 原文为中文时**直接跳过**，不发起请求。
 3. **分块与缓存**：长文本会自动按段落、换行或句子边界分块（默认 2000 字符/块）并逐块缓存。二次展开或刷新页面均不会重复调用模型。
 4. **主备双路由**：主路由失败（504 / 超时 / 静默卡死）时自动切备用渠道重试一次。静默看门狗的判据是"多久没有新 token"而不是总耗时——总超时会误杀慢但健康的请求。备用路由可单独设更大的分块（付费渠道无长度限制），主路由全挂时先发 1 块探针，失败立即整段切备用。
-5. **控制面板**：进入 **设置 → 插件 → 「dsh-ollama-session-translator」** 即可打开配置面板。面板分六张卡片（状态、基础、翻译模式、翻译模型、备用路由、高级）+ 一个试译框 + 底部保存栏，详见下方「设置项」。
+5. **控制面板**：进入 **设置 → 插件 → 「dsh-session-translator」** 即可打开配置面板。面板分六张卡片（状态、基础、翻译模式、翻译模型、备用路由、高级）+ 一个试译框 + 底部保存栏，详见下方「设置项」。
 
 ## 设置项
 

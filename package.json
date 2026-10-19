@@ -23,11 +23,11 @@
   "author": "Eyeing0721",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/2994650874-coder/dsh-ollama-session-translator.git"
+    "url": "git+https://github.com/2994650874-coder/dsh-session-translator.git"
   },
-  "homepage": "https://github.com/2994650874-coder/dsh-ollama-session-translator#readme",
+  "homepage": "https://github.com/2994650874-coder/dsh-session-translator#readme",
   "bugs": {
-    "url": "https://github.com/2994650874-coder/dsh-ollama-session-translator/issues"
+    "url": "https://github.com/2994650874-coder/dsh-session-translator/issues"
   },
   "engines": {
     "node": ">=20"
