@@ -124,14 +124,40 @@ const REASONING_B = 'This block is collapsed, so a reader cannot see it and it m
 const REASONING_C = 'The geometry fallback has to catch rows a build renders open without the data-expanded attribute on them.'
 const REASONING_D = 'Streaming blocks are only translated when live translation is switched on explicitly.'
 
+// [PATCH 2026-10-19 dropdown-row-squash] 模型下拉的回归样本：真机上
+// workbuddy-ai 注册了 12 个模型，正是"候选总高超过 maxHeight 260px → flex
+// 压缩每一行 → overflow:hidden 裁掉下半截"的触发条件。模型少时不会出现，
+// 所以 fixture 必须真的给够数量，否则这条断言等于没测。
+const SQUASH_MODELS = [
+  'claude-sonnet-4-5-20250929',
+  'claude-opus-4-1-20250805',
+  'claude-haiku-4-5-20251001',
+  'gpt-5-2025-08-07',
+  'gpt-5-mini-2025-08-07',
+  'gemini-2-5-pro',
+  'gemini-2-5-flash',
+  'deepseek-v3-1',
+  'deepseek-r1-0528',
+  'qwen3-max',
+  'kimi-k2-0905',
+  'glm-4-6',
+].map((id) => ({ id, name: id }))
+
+const CATALOG = [
+  { id: 'workbuddy-ai', name: 'WorkBuddy AI', models: SQUASH_MODELS },
+  { id: 'ollama', name: 'Ollama', models: [{ id: 'qwen2.5', name: 'qwen2.5' }] },
+]
+
 const server = {
   config: {
     enabled: true,
     autoTranslate: true,
     liveTranslate: false,
     targetLanguage: 'zh-CN',
-    provider: 'fake',
-    model: 'fake-1',
+    // [PATCH 2026-10-19 dropdown-row-squash] 默认渠道就用"模型很多"的那个：
+    // 设置面板一渲染，「翻译模型」下拉里就有 12 个候选，才能覆盖压扁回归。
+    provider: 'workbuddy-ai',
+    model: SQUASH_MODELS[0].id,
     disableThinking: true,
     maxChunkChars: 3000,
     maxInputChars: 24000,
@@ -171,8 +197,8 @@ const httpServer = createServer(async (req, res) => {
       defaults: { ...server.config, enabled: true, provider: '', model: '' },
       configPath: 'C:\\temp\\cot-en2cn\\config.json',
       configSource: 'file',
-      route: { provider: 'fake', model: 'fake-1', source: 'override' },
-      stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: 'fake/fake-1' },
+      route: { provider: server.config.provider, model: server.config.model, source: 'override' },
+      stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: `${server.config.provider}/${server.config.model}` },
       languages: [
         { id: 'zh-CN', label: '简体中文' },
         { id: 'zh-TW', label: '繁體中文' },
@@ -180,6 +206,21 @@ const httpServer = createServer(async (req, res) => {
         { id: 'ja', label: '日本語' },
       ],
     })
+    return
+  }
+
+  if (path === '/dsh-cot-en2cn/catalog') {
+    // [PATCH 2026-10-19 dropdown-row-squash] 设置 fixture 需要"模型很多"的渠道
+    // 才能触发下拉行被压扁；模型少时该 bug 不出现，所以这里给足 12 个。
+    jsonResponse(res, 200, { ok: true, providers: CATALOG })
+    return
+  }
+
+  if (path === '/dsh-cot-en2cn/models') {
+    // [PATCH 2026-10-19 dropdown-row-squash] 面板进站时 Promise.all 同时拉
+    // models + catalog；缺了 models 这条，readJson 会因 404 抛错，整个
+    // Promise.all 直接 reject → catalog 永远为空 → 下拉退化成输入框。
+    jsonResponse(res, 200, { ok: true, providers: [], ollama: { found: false, endpoint: '', models: [], probed: [], error: null } })
     return
   }
 
@@ -213,8 +254,8 @@ const httpServer = createServer(async (req, res) => {
       defaults: { ...server.config, enabled: true, provider: '', model: '' },
       configPath: 'C:\\temp\\cot-en2cn\\config.json',
       configSource: 'file',
-      route: { provider: 'fake', model: 'fake-1', source: 'override' },
-      stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: 'fake/fake-1' },
+      route: { provider: server.config.provider, model: server.config.model, source: 'override' },
+      stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: `${server.config.provider}/${server.config.model}` },
       languages: [{ id: 'zh-CN', label: '简体中文' }],
     })
     return
@@ -427,6 +468,10 @@ function settingsHtml() {
 <script>window.__ModuleLoader__ = { load: function (record) { window.__pluginRecord = record } }</script>
 <script src="/plugins/dsh-cot-en2cn/client.js"></script>
 <script>
+  var SQUASH_IDS = ${JSON.stringify(SQUASH_MODELS.map((model) => model.id))}
+  var SQUASH_FIRST_ID = ${JSON.stringify(SQUASH_MODELS[0].id)}
+</script>
+<script>
   ;(async function () {
     var report = []
     function log(name, ok, detail) { report.push({ name: name, ok: ok === true, detail: detail === undefined ? '' : String(detail) }) }
@@ -451,7 +496,9 @@ function settingsHtml() {
       var deadline = Date.now() + 8000
       while (Date.now() < deadline) {
         var text = document.getElementById('root').textContent
-        if (text.indexOf('翻译模型') !== -1 && text.indexOf('fake / fake-1') !== -1) break
+        // 必须等 catalog 拉到、模型下拉换成「有候选」形态（触发器显示模型名）
+        // 再断言，否则量到的是还没加载候选时的输入框形态。
+        if (text.indexOf('翻译模型') !== -1 && text.indexOf(SQUASH_FIRST_ID) !== -1) break
         await new Promise(function (resolve) { setTimeout(resolve, 80) })
       }
       var rendered = document.getElementById('root').textContent
@@ -459,7 +506,7 @@ function settingsHtml() {
       // 的旧面板（"展开时自动翻译" / "用默认模型" / 配置文件路径行），那些文案与
       // 控件早已在面板重做时删除，断言却没人更新 —— 结果永远 FAIL，掩盖真实回归。
       // 现在改成断言**当前面板的稳定锚点**：六张卡片标题 + 保存栏 + 关键控件。
-      log('renders the status card', rendered.indexOf('fake / fake-1') !== -1, rendered.slice(0, 60))
+      log('renders the status card', rendered.indexOf('workbuddy-ai') !== -1, rendered.slice(0, 60))
       log('renders six group cards',
         ['基础', '翻译模式', '翻译模型', '备用路由', '高级', '试译'].every(function (name) {
           return rendered.indexOf(name) !== -1
@@ -480,6 +527,48 @@ function settingsHtml() {
       }
       var stats = await (await fetch('/__stats', { cache: 'no-store' })).json()
       log('clear cache button hits the host', stats.cacheClears === 1, stats.cacheClears)
+
+      // [PATCH 2026-10-19 dropdown-row-squash] 回归：模型多的渠道下，下拉每一行
+      // 必须保持完整高度。曾经的 bug 是 dropdownMenu 为 flex 纵向容器，选项
+      // 按钮作为 flex item 默认 flex-shrink:1，候选总高超过 maxHeight(260) 时
+      // flex 先把每行从 30px 压到 18px，再被 overflow:hidden 裁掉下半截 ——
+      // 表现为"下一行遮住上一行的下半截"。模型少时不会出现，所以这里必须
+      // 点开一个真有 12 个候选的下拉来量。
+      var trigger = Array.prototype.slice.call(document.querySelectorAll('#root button'))
+        .filter(function (b) { return b.textContent.indexOf(SQUASH_FIRST_ID) !== -1 })[0]
+      if (trigger === undefined) {
+        log('model dropdown trigger found', false, 'no button showing ' + SQUASH_FIRST_ID)
+      } else {
+        trigger.click()
+        await new Promise(function (resolve) { setTimeout(resolve, 250) })
+        var optionButtons = Array.prototype.slice.call(document.querySelectorAll('#root button'))
+          .filter(function (b) {
+            var text = b.textContent.trim()
+            if (/[▲▼]/.test(text)) return false
+            return SQUASH_IDS.some(function (id) { return text.indexOf(id) !== -1 })
+          })
+        log('model dropdown lists every model', optionButtons.length === SQUASH_IDS.length,
+          optionButtons.length + '/' + SQUASH_IDS.length)
+        var squashed = optionButtons.filter(function (b) { return b.offsetHeight < b.scrollHeight })
+        log('no model row is squashed', optionButtons.length > 0 && squashed.length === 0,
+          squashed.length + '/' + optionButtons.length + ' rows clipped')
+        // 行距必须 >= 行自身内容高，否则就是"下行压上行"。
+        var overlap = 0
+        for (var i = 1; i < optionButtons.length; i += 1) {
+          var prev = optionButtons[i - 1]
+          var gap = optionButtons[i].getBoundingClientRect().top - prev.getBoundingClientRect().top
+          if (gap + 0.5 < prev.scrollHeight) overlap += 1
+        }
+        log('no model row overlaps the one above', optionButtons.length > 1 && overlap === 0,
+          overlap + ' overlapping rows')
+        // 下拉自己必须是可滚动容器，而不是把行压扁来塞下。
+        var menu = optionButtons.length === 0 ? null : optionButtons[0].parentElement
+        log('dropdown scrolls instead of shrinking rows',
+          menu !== null && menu.scrollHeight > menu.clientHeight &&
+            getComputedStyle(menu).overflowY === 'auto',
+          menu === null ? 'no menu' : menu.scrollHeight + ' > ' + menu.clientHeight)
+        trigger.click()
+      }
 
       document.getElementById('report').textContent = JSON.stringify(report)
     } catch (error) {
