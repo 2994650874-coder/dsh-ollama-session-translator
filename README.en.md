@@ -372,6 +372,10 @@ Versioning rules:
 
 > This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).
 
+### Unreleased (ships with the next feature release)
+
+- **Lifecycle teardown** (`dispose`): the inline translator never released what it created. `startTranslator()` attaches one `MutationObserver` on `document.body` (`childList` + `subtree`), three document-level listeners, a 15-second polling timer and a 220 ms sync timer — and `disconnect()` was never called anywhere in `client.js`. Because `dsh-client-hmr` reloads a module without reloading the page, every hot swap **stacked another set** on top of a still-running one. `startTranslator` is now wrapped in `ctx.effect()`, whose returned disposer tears everything down; the `visibilitychange` handler and the `locale.subscribe` subscription are named and unsubscribable. Translation behaviour is unchanged, so the version is not bumped.
+
 ### 2026-10-19
 
 **Settings panel rebuilt**

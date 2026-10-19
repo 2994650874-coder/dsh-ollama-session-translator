@@ -386,6 +386,10 @@ dsh-session-translator/
 
 > 本仓库是 [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn) 的维护分支（fork），以下为分支上的增强。
 
+### 未发布（下次功能版一起发）
+
+- **生命周期收口**（`dispose`）：修复 inline translator 从不拆除自己建的资源 —— `startTranslator()` 会挂 1 个 `MutationObserver`（监听 `document.body` 全树）、3 个 document 级 listener、1 个 15 秒轮询定时器和 1 个 220ms 同步定时器，而整个 `client.js` 里 `disconnect()` 一次都没被调用过。`dsh-client-hmr` 只重载模块不刷新页面，所以每次热替换都会**再叠一套**进去，且旧的那套仍在跑。现在 `startTranslator` 改由 `ctx.effect()` 包裹并在返回的清理函数里拆除，`visibilitychange` 与 `locale.subscribe` 也改成具名可退订。**只看这一次提交的读者注意**：这是资源生命周期修复，不改译文行为，也不改版本号。
+
 ### 2026-10-19
 
 **设置面板重做**
