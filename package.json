@@ -49,7 +49,7 @@
   ],
   "dependencies": {},
   "scripts": {
-    "test": "node tools/smoke.mjs && node tools/select-safe-test.mjs && node tools/host-integration.mjs && node tools/parity-check.mjs && node tools/browser-check.mjs"
+    "test": "node tools/smoke.mjs && node tools/err-i18n-test.mjs && node tools/select-safe-test.mjs && node tools/host-integration.mjs && node tools/parity-check.mjs && node tools/browser-check.mjs"
   },
   "dsh": {
     "bundle": {
