@@ -364,7 +364,7 @@ await test('messages look like a hand-built plugin user message', async () => {
   const message = llm.calls[0].messages[0]
   assert.equal(message.role, 'user')
   assert.equal(message.source.kind, 'plugin')
-  assert.equal(message.source.plugin, 'dsh-cot-en2cn')
+  assert.equal(message.source.plugin, 'dsh-session-translator')
   assert.equal(message.content[0].type, 'text')
   assert.equal(typeof message.id, 'string')
   assert.ok(Object.isFrozen(message))
@@ -426,7 +426,7 @@ await test('resolveDshHome honours DSH_HOME and falls back to ~/.dsh', () => {
 })
 
 await test('the config store round-trips through a real file', () => {
-  const home = mkdtempSync(join(tmpdir(), 'cot-en2cn-'))
+  const home = mkdtempSync(join(tmpdir(), 'session-translator-'))
   try {
     const store = createConfigStore({ home })
     assert.equal(store.path, configFilePath(home))
@@ -452,7 +452,7 @@ await test('the config store round-trips through a real file', () => {
 })
 
 await test('a bare config document is accepted (no version envelope)', () => {
-  const home = mkdtempSync(join(tmpdir(), 'cot-en2cn-'))
+  const home = mkdtempSync(join(tmpdir(), 'session-translator-'))
   try {
     const store = createConfigStore({ home })
     store.save({ ...DEFAULT_CONFIG, fontSizePx: 15 })
@@ -711,7 +711,7 @@ await test('the browser bundle registers and exports apply/inject', async () => 
   }
   await import(pathToFileURL(join(lib, 'client.js')).href)
   assert.ok(record !== null, 'client.js did not call __ModuleLoader__.load')
-  assert.equal(record.id, 'dsh-cot-en2cn')
+  assert.equal(record.id, 'dsh-session-translator')
   assert.equal(typeof record.factory, 'function')
   const reactStub = {
     createElement: () => ({}),

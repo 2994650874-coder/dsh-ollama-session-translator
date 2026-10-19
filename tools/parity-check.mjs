@@ -53,7 +53,7 @@ if (real === null || typeof real.createUserMessage !== 'function') {
 
 const TEXT = 'Let me check the parity of this message shape against the shipped factory.'
 const mine = buildUserMessage(TEXT)
-const theirs = real.createUserMessage({ content: [{ type: 'text', text: TEXT }], source: { kind: 'plugin', plugin: 'dsh-cot-en2cn' } })
+const theirs = real.createUserMessage({ content: [{ type: 'text', text: TEXT }], source: { kind: 'plugin', plugin: 'dsh-session-translator' } })
 
 let passed = 0
 let failed = 0

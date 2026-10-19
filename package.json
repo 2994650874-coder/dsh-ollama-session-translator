@@ -1,5 +1,5 @@
 {
-  "name": "dsh-cot-en2cn",
+  "name": "dsh-session-translator",
   "version": "0.1.0",
   "description": "Inline English-to-Chinese translation plugin for DeepSeek Harness (DSH) thinking blocks. Zero dependency on DSH internals, no slot, no renderer override, no session-log writes.",
   "type": "module",

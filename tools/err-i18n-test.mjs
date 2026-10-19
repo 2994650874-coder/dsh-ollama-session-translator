@@ -45,7 +45,7 @@ function section(name) {
 const t = (key) => key
 
 /** Error panels carry their own marker so CoT reconciliation never sees them. */
-const ERR_PANEL_ATTR = 'data-dsh-cot-en2cn-err'
+const ERR_PANEL_ATTR = 'data-dsh-session-translator-err'
 
 /** Failure codes whose copy the host already localizes — never re-translated. */
 const LOCALE_ERROR_CODES = new Set([
@@ -110,7 +110,7 @@ class StubEl {
   /** Whether this element matches a stub-supported selector. */
   matches(sel) {
     // 复合选择器：按顺序解析 [a="b"] / [a*="b"] 片段，全部满足才算命中。
-    // 属性名可含连字符（data-dsh-cot-en2cn-err 之类）；值必须非贪婪匹配，
+    // 属性名可含连字符（data-dsh-session-translator-err 之类）；值必须非贪婪匹配，
     // 否则第一个片段的 value 会把后面的片段一起吞掉。
     let rest = sel
     let matched = 0
@@ -296,7 +296,7 @@ check('中英混杂的报错照翻（真的没本地化）', () => {
 section('错误面板与 CoT 面板隔离')
 
 check('两套 DOM 属性互不相同', () => {
-  assert.notEqual(ERR_PANEL_ATTR, 'data-dsh-cot-en2cn')
+  assert.notEqual(ERR_PANEL_ATTR, 'data-dsh-session-translator')
 })
 check('CoT 的 keep-set 扫描（PANEL_ATTR）看不见错误面板', () => {
   const row = makeErrorRow({ message: 'upstream 502 gateway error' })
@@ -305,13 +305,13 @@ check('CoT 的 keep-set 扫描（PANEL_ATTR）看不见错误面板', () => {
   errPanel.setAttribute(ERR_PANEL_ATTR, 'panel')
   row.appendChild(errPanel)
   const seen = []
-  for (const panel of body.querySelectorAll(`[data-dsh-cot-en2cn="panel"]`)) seen.push(panel)
+  for (const panel of body.querySelectorAll(`[data-dsh-session-translator="panel"]`)) seen.push(panel)
   assert.equal(seen.length, 0)
 })
 check('错误面板的孤儿清扫（ERR_PANEL_ATTR）不会碰到 CoT 面板', () => {
   const body = installDocument(makeErrorRow({ message: 'upstream 502 gateway error' }))
   const cotPanel = new StubEl('div')
-  cotPanel.setAttribute('data-dsh-cot-en2cn', 'panel')
+  cotPanel.setAttribute('data-dsh-session-translator', 'panel')
   body.appendChild(cotPanel)
   const keep = new Set()
   for (const panel of body.querySelectorAll(`[${ERR_PANEL_ATTR}="panel"]`)) {
@@ -325,11 +325,11 @@ section('syncErrorPanels：落点与早退')
 /** 与 client.js 一致的最小实现（依赖已在上方桩化）。 */
 function createErrorPanel() {
   const panel = new StubEl('div')
-  panel.className = 'dsh-cot-en2cn-errpanel'
+  panel.className = 'dsh-session-translator-errpanel'
   panel.setAttribute(ERR_PANEL_ATTR, 'panel')
-  const head = panel.appendChild(new StubEl('div', { class: 'dsh-cot-en2cn-errhead' }))
-  head.className = 'dsh-cot-en2cn-errhead'
-  head.appendChild(new StubEl('div', { class: 'dsh-cot-en2cn-errstatus' }))
+  const head = panel.appendChild(new StubEl('div', { class: 'dsh-session-translator-errhead' }))
+  head.className = 'dsh-session-translator-errhead'
+  head.appendChild(new StubEl('div', { class: 'dsh-session-translator-errstatus' }))
   return panel
 }
 

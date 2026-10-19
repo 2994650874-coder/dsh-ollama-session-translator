@@ -7,5 +7,5 @@
 # /plugins/dsh-cot-en2cn/client.js) load in the web GUI, where it injects the
 # Chinese translation under every expanded thinking block.
 - insert:
-    - id: dsh-cot-en2cn
-      name: dsh-cot-en2cn
+    - id: dsh-session-translator
+      name: dsh-session-translator

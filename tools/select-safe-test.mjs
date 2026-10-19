@@ -152,7 +152,7 @@ function el(attrs = {}, text = '') {
 }
 
 function panelWith(...parts) {
-  const panel = el({ 'data-dsh-cot-en2cn': 'panel' })
+  const panel = el({ 'data-dsh-session-translator': 'panel' })
   panel.dataset = {}
   panel.isConnected = true
   panel.children = parts

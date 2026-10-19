@@ -102,7 +102,7 @@ async function fetchUmd(dir, name, url) {
 let reactFile = firstExisting(REACT_UMD)
 let reactDomFile = firstExisting(REACT_DOM_UMD)
 if (reactFile === undefined || reactDomFile === undefined) {
-  const umdCache = mkdtempSync(join(tmpdir(), 'cot-en2cn-react-'))
+  const umdCache = mkdtempSync(join(tmpdir(), 'session-translator-react-'))
   if (reactFile === undefined) {
     reactFile = await fetchUmd(umdCache, 'react.development.js', 'https://unpkg.com/react@18/umd/react.development.js')
   }
@@ -189,13 +189,13 @@ const httpServer = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const path = url.pathname
 
-  if (path === '/dsh-cot-en2cn/state') {
+  if (path === '/dsh-session-translator/state') {
     jsonResponse(res, 200, {
       ok: true,
       version: '0.1.0-test',
       config: server.config,
       defaults: { ...server.config, enabled: true, provider: '', model: '' },
-      configPath: 'C:\\temp\\cot-en2cn\\config.json',
+      configPath: 'C:\\temp\\session-translator\\config.json',
       configSource: 'file',
       route: { provider: server.config.provider, model: server.config.model, source: 'override' },
       stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: `${server.config.provider}/${server.config.model}` },
@@ -209,14 +209,14 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  if (path === '/dsh-cot-en2cn/catalog') {
+  if (path === '/dsh-session-translator/catalog') {
     // [PATCH 2026-10-19 dropdown-row-squash] 设置 fixture 需要"模型很多"的渠道
     // 才能触发下拉行被压扁；模型少时该 bug 不出现，所以这里给足 12 个。
     jsonResponse(res, 200, { ok: true, providers: CATALOG })
     return
   }
 
-  if (path === '/dsh-cot-en2cn/models') {
+  if (path === '/dsh-session-translator/models') {
     // [PATCH 2026-10-19 dropdown-row-squash] 面板进站时 Promise.all 同时拉
     // models + catalog；缺了 models 这条，readJson 会因 404 抛错，整个
     // Promise.all 直接 reject → catalog 永远为空 → 下拉退化成输入框。
@@ -224,7 +224,7 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  if (path === '/dsh-cot-en2cn/translate') {
+  if (path === '/dsh-session-translator/translate') {
     const body = await readBody(req)
     server.translateCalls.push(String(body.text ?? ''))
     // A small real delay so the loading state is observable.
@@ -241,7 +241,7 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  if (path === '/dsh-cot-en2cn/config') {
+  if (path === '/dsh-session-translator/config') {
     const body = await readBody(req)
     server.configWrites.push(body)
     if (body !== null && typeof body.section === 'object' && body.section !== null) {
@@ -252,7 +252,7 @@ const httpServer = createServer(async (req, res) => {
       version: '0.1.0-test',
       config: server.config,
       defaults: { ...server.config, enabled: true, provider: '', model: '' },
-      configPath: 'C:\\temp\\cot-en2cn\\config.json',
+      configPath: 'C:\\temp\\session-translator\\config.json',
       configSource: 'file',
       route: { provider: server.config.provider, model: server.config.model, source: 'override' },
       stats: { requests: server.translateCalls.length, hits: 0, cacheSize: 0, lastMs: 12, lastError: null, lastRoute: `${server.config.provider}/${server.config.model}` },
@@ -261,7 +261,7 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  if (path === '/dsh-cot-en2cn/cache/clear') {
+  if (path === '/dsh-session-translator/cache/clear') {
     server.cacheClears += 1
     jsonResponse(res, 200, { ok: true, cleared: 3, stats: { requests: 1, hits: 3, cacheSize: 0, lastMs: 5, lastError: null, lastRoute: 'fake/fake-1' } })
     return
@@ -272,7 +272,7 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  if (path === '/plugins/dsh-cot-en2cn/client.js') {
+  if (path === '/plugins/dsh-session-translator/client.js') {
     const body = readFileSync(join(root, 'lib', 'client.js'))
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
     res.end(body)
@@ -343,7 +343,7 @@ function shellFixtures() {
 
 function fixtureHtml() {
   return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>cot-en2cn fixture</title></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>session-translator fixture</title></head>
 <body>
 ${shellFixtures()}
 <script>
@@ -353,12 +353,12 @@ ${shellFixtures()}
   window.addEventListener('unhandledrejection', function (event) { log('unhandledrejection', false, String(event.reason)) })
   window.__ModuleLoader__ = { load: function (record) { window.__pluginRecord = record } }
 </script>
-<script src="/plugins/dsh-cot-en2cn/client.js"></script>
+<script src="/plugins/dsh-session-translator/client.js"></script>
 <script>
   ;(async function () {
     try {
       var record = window.__pluginRecord
-      log('bundle registered', record !== undefined && record.id === 'dsh-cot-en2cn', record && record.id)
+      log('bundle registered', record !== undefined && record.id === 'dsh-session-translator', record && record.id)
       var plugin = record.factory(function (name) {
         if (name === 'react') return { createElement: function () { return {} } }
         throw new Error('unexpected require: ' + name)
@@ -377,13 +377,13 @@ ${shellFixtures()}
         register: function (options, component) { sections.push({ options: options, component: component }); return function () {} },
       }
       plugin.apply({ get: function (name) { return name === 'slots' ? slots : undefined }, effect: function (fn) { return fn() } })
-      log('settings section registered', sections.length === 1 && sections[0].options.id === 'cot-en2cn', sections.length)
+      log('settings section registered', sections.length === 1 && sections[0].options.id === 'session-translator', sections.length)
 
-      function panels() { return document.querySelectorAll('[data-dsh-cot-en2cn="panel"]') }
+      function panels() { return document.querySelectorAll('[data-dsh-session-translator="panel"]') }
       function translatedPanels() {
         return Array.prototype.filter.call(panels(), function (panel) { return /【中】/.test(panel.textContent) })
       }
-      function panelIn(id) { var row = document.getElementById(id); return row === null ? null : row.querySelector('[data-dsh-cot-en2cn="panel"]') }
+      function panelIn(id) { var row = document.getElementById(id); return row === null ? null : row.querySelector('[data-dsh-session-translator="panel"]') }
       function waitFor(predicate, timeoutMs) {
         var deadline = Date.now() + timeoutMs
         return new Promise(function (resolve) {
@@ -438,7 +438,7 @@ ${shellFixtures()}
       log('toggle restores the translation', body !== null && body.getAttribute('data-collapsed') === 'false')
 
       // Master switch off: every panel goes away.
-      await fetch('/dsh-cot-en2cn/config', {
+      await fetch('/dsh-session-translator/config', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ section: { enabled: false } }),
@@ -459,14 +459,14 @@ ${shellFixtures()}
 
 function settingsHtml() {
   return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>cot-en2cn settings</title></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>session-translator settings</title></head>
 <body>
 <div id="root"></div>
 <pre id="report"></pre>
 <script src="/react.js"></script>
 <script src="/react-dom.js"></script>
 <script>window.__ModuleLoader__ = { load: function (record) { window.__pluginRecord = record } }</script>
-<script src="/plugins/dsh-cot-en2cn/client.js"></script>
+<script src="/plugins/dsh-session-translator/client.js"></script>
 <script>
   var SQUASH_IDS = ${JSON.stringify(SQUASH_MODELS.map((model) => model.id))}
   var SQUASH_FIRST_ID = ${JSON.stringify(SQUASH_MODELS[0].id)}
@@ -607,7 +607,7 @@ function decodeEntities(value) {
 }
 
 async function dumpDom(port, path) {
-  const profileDir = mkdtempSync(join(tmpdir(), 'cot-en2cn-chrome-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'session-translator-chrome-'))
   try {
     const { stdout } = await run(
       chrome,
@@ -661,7 +661,7 @@ try {
   } else {
     for (const entry of fixtureReport) check(entry.name, entry.ok, entry.detail)
   }
-  check('panels exist in the serialized DOM', /data-dsh-cot-en2cn="panel"/.test(fixtureDom))
+  check('panels exist in the serialized DOM', /data-dsh-session-translator="panel"/.test(fixtureDom))
 
   if (reactFile !== undefined && reactDomFile !== undefined) {
     process.stdout.write('settings section\n')

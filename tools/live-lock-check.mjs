@@ -77,22 +77,22 @@ writeFileSync(join(dir, 'index.html'), `<!doctype html><html lang="zh-CN"><head>
 const server = createServer((req, res) => {
   const path = req.url.split('?')[0]
   // /state 按当前 mode 返回；其余路由返回最小可用载荷，避免 404 噪音。
-  if (path.startsWith('/dsh-cot-en2cn/state')) {
+  if (path.startsWith('/dsh-session-translator/state')) {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(stateFor(mode))
     return
   }
-  if (path.startsWith('/dsh-cot-en2cn/catalog')) {
+  if (path.startsWith('/dsh-session-translator/catalog')) {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ok: true, catalog: [] }))
     return
   }
-  if (path.startsWith('/dsh-cot-en2cn/models')) {
+  if (path.startsWith('/dsh-session-translator/models')) {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ok: true, providers: [], ollama: null }))
     return
   }
-  if (path.startsWith('/dsh-cot-en2cn/')) {
+  if (path.startsWith('/dsh-session-translator/')) {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end('{"ok":true}')
     return

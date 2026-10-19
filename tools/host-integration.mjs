@@ -24,7 +24,7 @@ const lib = join(here, '..', 'lib')
 
 // The plugin resolves its config through $DSH_HOME, so point that at a scratch
 // directory before the module is loaded.
-const home = mkdtempSync(join(tmpdir(), 'cot-en2cn-host-'))
+const home = mkdtempSync(join(tmpdir(), 'session-translator-host-'))
 process.env.DSH_HOME = home
 
 const plugin = await import(pathToFileURL(join(lib, 'index.js')).href)
@@ -159,19 +159,19 @@ const { routes, llm } = await boot()
 
 await test('every documented route is registered', () => {
   for (const path of [
-    '/dsh-cot-en2cn/state',
-    '/dsh-cot-en2cn/config',
-    '/dsh-cot-en2cn/translate',
-    '/dsh-cot-en2cn/providers',
-    '/dsh-cot-en2cn/models',
-    '/dsh-cot-en2cn/cache/clear',
+    '/dsh-session-translator/state',
+    '/dsh-session-translator/config',
+    '/dsh-session-translator/translate',
+    '/dsh-session-translator/providers',
+    '/dsh-session-translator/models',
+    '/dsh-session-translator/cache/clear',
   ]) {
     assert.ok(routes.has(path), `missing route ${path}`)
   }
 })
 
 await test('GET /state reports defaults, the unset route, and the config path', async () => {
-  const response = await call(routes, '/dsh-cot-en2cn/state')
+  const response = await call(routes, '/dsh-session-translator/state')
   assert.equal(response.status, 200)
   assert.equal(response.json.ok, true)
   assert.equal(response.json.config.enabled, true)
@@ -179,34 +179,34 @@ await test('GET /state reports defaults, the unset route, and the config path', 
   // [PATCH 2026-10-05 no-default-fallback] 空 provider/model = 显式 unset，
   // 不再回落到 DSH 默认（付费）模型。
   assert.deepEqual(response.json.route, { provider: '', model: '', source: 'unset' })
-  assert.equal(response.json.configPath, join(home, 'storages', 'cot-en2cn', 'config.json'))
+  assert.equal(response.json.configPath, join(home, 'storages', 'session-translator', 'config.json'))
   assert.equal(response.json.languages.length, 4)
 })
 
 await test('GET /state is loopback-only', async () => {
-  const response = await call(routes, '/dsh-cot-en2cn/state', { remoteAddress: '10.0.0.5' })
+  const response = await call(routes, '/dsh-session-translator/state', { remoteAddress: '10.0.0.5' })
   assert.equal(response.status, 403)
   assert.equal(response.json.ok, false)
 })
 
 // [PATCH 2026-10-05 no-default-fallback] 空路由是显式失败，不再有默认模型兜
 // 底；给这组用例先配好 fake 路由。
-await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { provider: 'fake', model: 'fake-1' } } })
+await call(routes, '/dsh-session-translator/config', { method: 'PUT', body: { section: { provider: 'fake', model: 'fake-1' } } })
 
 await test('POST /translate returns a translation and caches it', async () => {
   const text = 'Let me read the file and check the failing assertion.'
-  const first = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text } })
+  const first = await call(routes, '/dsh-session-translator/translate', { method: 'POST', body: { text } })
   assert.equal(first.status, 200)
   assert.equal(first.json.ok, true)
   assert.equal(first.json.translation, `[中文] ${text}`)
   assert.equal(first.json.cached, false)
-  const second = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text } })
+  const second = await call(routes, '/dsh-session-translator/translate', { method: 'POST', body: { text } })
   assert.equal(second.json.cached, true)
   assert.equal(llm.calls.length, 1)
 })
 
 await test('POST /translate marks already-Chinese text as skipped', async () => {
-  const response = await call(routes, '/dsh-cot-en2cn/translate', {
+  const response = await call(routes, '/dsh-session-translator/translate', {
     method: 'POST',
     body: { text: '这段思维链本来就是中文，不需要翻译，也不该花钱。' },
   })
@@ -216,15 +216,15 @@ await test('POST /translate marks already-Chinese text as skipped', async () => 
 })
 
 await test('POST /translate rejects a wrong method, a bad body, and a remote caller', async () => {
-  const wrongMethod = await call(routes, '/dsh-cot-en2cn/translate', { method: 'GET' })
+  const wrongMethod = await call(routes, '/dsh-session-translator/translate', { method: 'GET' })
   assert.equal(wrongMethod.status, 405)
   assert.equal(wrongMethod.headers.allow, 'POST')
 
-  const badBody = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text: 42 } })
+  const badBody = await call(routes, '/dsh-session-translator/translate', { method: 'POST', body: { text: 42 } })
   assert.equal(badBody.status, 502)
   assert.match(String(badBody.json.error), /text 必须是字符串/)
 
-  const remote = await call(routes, '/dsh-cot-en2cn/translate', {
+  const remote = await call(routes, '/dsh-session-translator/translate', {
     method: 'POST',
     body: { text: 'hello there, translate me please.' },
     remoteAddress: '8.8.8.8',
@@ -233,19 +233,19 @@ await test('POST /translate rejects a wrong method, a bad body, and a remote cal
 })
 
 await test('POST /translate is disabled while the master switch is off', async () => {
-  await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { enabled: false } } })
-  const response = await call(routes, '/dsh-cot-en2cn/translate', {
+  await call(routes, '/dsh-session-translator/config', { method: 'PUT', body: { section: { enabled: false } } })
+  const response = await call(routes, '/dsh-session-translator/translate', {
     method: 'POST',
     body: { text: 'This must not reach the model at all.' },
   })
   assert.equal(response.status, 200)
   assert.equal(response.json.skipped, 'disabled')
   assert.equal(llm.calls.length, 1)
-  await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { section: { enabled: true } } })
+  await call(routes, '/dsh-session-translator/config', { method: 'PUT', body: { section: { enabled: true } } })
 })
 
 await test('PUT /config persists to disk and survives a reload', async () => {
-  const response = await call(routes, '/dsh-cot-en2cn/config', {
+  const response = await call(routes, '/dsh-session-translator/config', {
     method: 'PUT',
     body: { section: { provider: 'fake', model: 'fake-1', maxChunkChars: 999999, targetLanguage: 'ja' } },
   })
@@ -254,7 +254,7 @@ await test('PUT /config persists to disk and survives a reload', async () => {
   assert.equal(response.json.config.targetLanguage, 'ja')
   assert.deepEqual(response.json.route, { provider: 'fake', model: 'fake-1', source: 'override' })
 
-  const file = join(home, 'storages', 'cot-en2cn', 'config.json')
+  const file = join(home, 'storages', 'session-translator', 'config.json')
   assert.ok(existsSync(file), 'config file was not written')
   const onDisk = JSON.parse(readFileSync(file, 'utf8'))
   assert.equal(onDisk.version, 1)
@@ -268,31 +268,31 @@ await test('PUT /config persists to disk and survives a reload', async () => {
 })
 
 await test('PUT /config rejects cross-origin, wrong content type, and a missing section', async () => {
-  const crossOrigin = await call(routes, '/dsh-cot-en2cn/config', {
+  const crossOrigin = await call(routes, '/dsh-session-translator/config', {
     method: 'PUT',
     body: { section: { enabled: false } },
     headers: { origin: 'http://evil.example', 'sec-fetch-site': 'cross-site' },
   })
   assert.equal(crossOrigin.status, 403)
 
-  const wrongType = await call(routes, '/dsh-cot-en2cn/config', {
+  const wrongType = await call(routes, '/dsh-session-translator/config', {
     method: 'PUT',
     body: { section: {} },
     headers: { 'content-type': 'text/plain' },
   })
   assert.equal(wrongType.status, 415)
 
-  const noSection = await call(routes, '/dsh-cot-en2cn/config', { method: 'PUT', body: { nope: true } })
+  const noSection = await call(routes, '/dsh-session-translator/config', { method: 'PUT', body: { nope: true } })
   assert.equal(noSection.status, 400)
   assert.match(String(noSection.json.error), /section/)
 })
 
 await test('GET /providers and /models report the LLM catalogue', async () => {
-  const providers = await call(routes, '/dsh-cot-en2cn/providers')
+  const providers = await call(routes, '/dsh-session-translator/providers')
   assert.equal(providers.status, 200)
   assert.deepEqual(providers.json.providers, [{ id: 'fake', name: 'Fake provider' }])
 
-  const models = await call(routes, '/dsh-cot-en2cn/models', { path: '/dsh-cot-en2cn/models?provider=fake' })
+  const models = await call(routes, '/dsh-session-translator/models', { path: '/dsh-session-translator/models?provider=fake' })
   assert.equal(models.status, 200)
   assert.deepEqual(models.json.models, [{ id: 'fake-1', name: 'Fake One' }])
 
@@ -301,7 +301,7 @@ await test('GET /providers and /models report the LLM catalogue', async () => {
   const previous = process.env.DSH_COT_EN2CN_OLLAMA
   process.env.DSH_COT_EN2CN_OLLAMA = 'http://127.0.0.1:9'
   try {
-    const discovery = await call(routes, '/dsh-cot-en2cn/models')
+    const discovery = await call(routes, '/dsh-session-translator/models')
     assert.equal(discovery.status, 200)
     assert.equal(discovery.json.ok, true)
     assert.equal(discovery.json.ollama.found, false)
@@ -314,7 +314,7 @@ await test('GET /providers and /models report the LLM catalogue', async () => {
     else process.env.DSH_COT_EN2CN_OLLAMA = previous
   }
 
-  const unknown = await call(routes, '/dsh-cot-en2cn/models', { path: '/dsh-cot-en2cn/models?provider=nope' })
+  const unknown = await call(routes, '/dsh-session-translator/models', { path: '/dsh-session-translator/models?provider=nope' })
   assert.equal(unknown.status, 200)
   assert.equal(unknown.json.ok, false)
   assert.deepEqual(unknown.json.models, [])
@@ -322,10 +322,10 @@ await test('GET /providers and /models report the LLM catalogue', async () => {
 
 await test('POST /cache/clear drops cached chunks', async () => {
   const text = 'A fresh sentence that is not cached yet, honestly.'
-  await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text } })
-  const before = await call(routes, '/dsh-cot-en2cn/state')
+  await call(routes, '/dsh-session-translator/translate', { method: 'POST', body: { text } })
+  const before = await call(routes, '/dsh-session-translator/state')
   assert.ok(before.json.stats.cacheSize > 0)
-  const cleared = await call(routes, '/dsh-cot-en2cn/cache/clear', { method: 'POST', body: {} })
+  const cleared = await call(routes, '/dsh-session-translator/cache/clear', { method: 'POST', body: {} })
   assert.equal(cleared.status, 200)
   assert.ok(cleared.json.cleared > 0)
   assert.equal(cleared.json.stats.cacheSize, 0)
@@ -333,7 +333,7 @@ await test('POST /cache/clear drops cached chunks', async () => {
 
 await test('a model failure is reported in band with 502', async () => {
   llm.failWith(new Error('上游 429'))
-  const response = await call(routes, '/dsh-cot-en2cn/translate', {
+  const response = await call(routes, '/dsh-session-translator/translate', {
     method: 'POST',
     body: { text: 'This call is going to fail upstream for sure.' },
   })
@@ -373,7 +373,7 @@ await test('a discovered Ollama endpoint lists models and translates directly', 
   const previous = process.env.DSH_COT_EN2CN_OLLAMA
   process.env.DSH_COT_EN2CN_OLLAMA = endpoint
   try {
-    const discovered = await call(routes, '/dsh-cot-en2cn/models')
+    const discovered = await call(routes, '/dsh-session-translator/models')
     assert.equal(discovered.status, 200)
     assert.equal(discovered.json.ollama.found, true)
     assert.equal(discovered.json.ollama.endpoint, endpoint)
@@ -382,12 +382,12 @@ await test('a discovered Ollama endpoint lists models and translates directly', 
     assert.equal(discovered.json.ollama.provider, endpoint)
     assert.equal(discovered.json.ollama.via, 'direct')
 
-    await call(routes, '/dsh-cot-en2cn/config', {
+    await call(routes, '/dsh-session-translator/config', {
       method: 'PUT',
       body: { section: { provider: endpoint, model: 'qwen-tr:latest' } },
     })
     const text = 'A direct round trip through the discovered endpoint.'
-    const translated = await call(routes, '/dsh-cot-en2cn/translate', { method: 'POST', body: { text } })
+    const translated = await call(routes, '/dsh-session-translator/translate', { method: 'POST', body: { text } })
     assert.equal(translated.status, 200)
     assert.equal(translated.json.translation, `[直连] ${text}`)
     assert.equal(translated.json.route.provider, endpoint)
@@ -396,7 +396,7 @@ await test('a discovered Ollama endpoint lists models and translates directly', 
     else process.env.DSH_COT_EN2CN_OLLAMA = previous
     await new Promise((resolve) => server.close(resolve))
     // 把 fake 路由还回去，后续用例的假设不变。
-    await call(routes, '/dsh-cot-en2cn/config', {
+    await call(routes, '/dsh-session-translator/config', {
       method: 'PUT',
       body: { section: { provider: 'fake', model: 'fake-1' } },
     })
@@ -407,14 +407,14 @@ await test('without a configured model translation fails with an explicit unset 
   const { routes: bareRoutes } = await boot()
   // The earlier tests left a provider/model override on disk; clear it so this
   // boot really has no route at all — and no silent fallback to any default.
-  const cleared = await call(bareRoutes, '/dsh-cot-en2cn/config', {
+  const cleared = await call(bareRoutes, '/dsh-session-translator/config', {
     method: 'PUT',
     body: { section: { provider: '', model: '' } },
   })
   assert.equal(cleared.json.config.provider, '')
-  const state = await call(bareRoutes, '/dsh-cot-en2cn/state')
+  const state = await call(bareRoutes, '/dsh-session-translator/state')
   assert.equal(state.json.route.source, 'unset')
-  const translate = await call(bareRoutes, '/dsh-cot-en2cn/translate', {
+  const translate = await call(bareRoutes, '/dsh-session-translator/translate', {
     method: 'POST',
     body: { text: 'No route exists, so this must fail cleanly.' },
   })
