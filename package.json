@@ -20,7 +20,7 @@
     "locale"
   ],
   "license": "MIT",
-  "author": "Eyeing0721",
+  "author": "maomao299 <2994650874@qq.com> (https://github.com/2994650874-coder)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/2994650874-coder/dsh-session-translator.git"
@@ -78,5 +78,8 @@
       "node": ">=20"
     },
     "permissions": {}
-  }
+  },
+  "contributors": [
+    "Eyeing0721 <https://github.com/Eyeing0721> (original author)"
+  ]
 }
