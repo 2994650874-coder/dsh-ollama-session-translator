@@ -66,7 +66,7 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 ### Install from GitHub (recommended)
 
 ```bash
-dsh plugin --profile desktop add github:2994650874-coder/dsh-ollama-session-translator
+dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-ollama-session-translator.git
 ```
 
 If the download stalls in mainland China, set a proxy for the current shell first:
@@ -78,7 +78,7 @@ $env:HTTPS_PROXY = 'http://127.0.0.1:7897'
 ### Install from Local Directory (Development)
 
 ```bash
-dsh plugin --profile desktop add /path/to/deepseek-cot-en2cn
+dsh plugin --profile desktop add /path/to/dsh-session-translator
 ```
 
 > Note: If linked from a local directory, do not move or delete the source folder; otherwise, the plugin registration will break.
@@ -88,7 +88,7 @@ After installing, **restart the DSH desktop app** and refresh your browser.
 ### Removal
 
 ```bash
-dsh plugin --profile desktop remove dsh-cot-en2cn
+dsh plugin --profile desktop remove dsh-session-translator
 ```
 
 Configuration files stored under the storages directory are preserved upon removal.

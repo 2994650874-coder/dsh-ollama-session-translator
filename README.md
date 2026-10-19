@@ -26,7 +26,7 @@
 > - **设置面板重做**：自绘下拉（规避 Electron 原生弹层被父级重渲染关闭）、草稿 + 手动保存（含 Ctrl+S）、数字框缓冲提交（规避每按键一次写盘导致的回显覆盖）、按主/备路由分离的额度设置；
 > - **环境适配**：已适配 DSH Desktop 0.2.1-rc.2（桌面 webview 同源校验放宽、sessions API 差异适配、思考块 DOM 双保险定位）。
 >
-> 安装：`dsh plugin --profile desktop add github:2994650874-coder/dsh-ollama-session-translator`
+> 安装：`dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-ollama-session-translator.git`
 
 DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展开那个「思考」块，中文译文直接出现在原文下方；原文一个字节都不改。
 
@@ -76,7 +76,7 @@ DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展�
 ### 从 GitHub 安装（推荐）
 
 ```bash
-dsh plugin --profile desktop add github:2994650874-coder/dsh-ollama-session-translator
+dsh plugin --profile desktop add https://github.com/2994650874-coder/dsh-ollama-session-translator.git
 ```
 
 国内网络如果卡在下载那一步，先给当前终端设好代理再执行：
@@ -88,7 +88,7 @@ $env:HTTPS_PROXY = 'http://127.0.0.1:7897'
 ### 从本地目录安装（开发 / 自用）
 
 ```bash
-dsh plugin --profile desktop add /path/to/deepseek-cot-en2cn
+dsh plugin --profile desktop add /path/to/dsh-session-translator
 ```
 
 > 注意：使用本地目录（link 方式）安装时，源目录不可删除或移动，否则插件会失效。
@@ -98,7 +98,7 @@ dsh plugin --profile desktop add /path/to/deepseek-cot-en2cn
 ### 卸载
 
 ```bash
-dsh plugin --profile desktop remove dsh-cot-en2cn
+dsh plugin --profile desktop remove dsh-session-translator
 ```
 
 卸载后，配置文件仍会保存在 storages 目录下，不会丢失。
