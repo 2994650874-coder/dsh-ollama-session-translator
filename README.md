@@ -60,7 +60,7 @@ DeepSeek Harness（DSH）的 Web 插件。模型用英文“思考”时，展�
 
 在使用 DeepSeek、GLM、Gemini 等推理模型时，模型经常输出大段英文思维链（Chain of Thought）。对于中文母语用户，逐字阅读长篇英文思考过程非常耗费精力。
 
-`dsh-cot-en2cn` 专为解决这个问题设计：
+`dsh-session-translator` 专为解决这个问题设计：
 - **不修改任何会话数据**：原文保持原样，只在浏览器界面渲染一层译文面板。
 - **不浪费 Token**：折叠的思考块不翻译；原文本来是中文直接跳过；已翻译内容双端缓存。
 - **零运行时依赖**：不引入任何第三方 npm 包，仅使用 Node.js 内置模块。
@@ -112,18 +112,19 @@ dsh plugin --profile desktop remove dsh-session-translator
    - 原文为中文时**直接跳过**，不发起请求。
 3. **分块与缓存**：长文本会自动按段落、换行或句子边界分块（默认 2000 字符/块）并逐块缓存。二次展开或刷新页面均不会重复调用模型。
 4. **主备双路由**：主路由失败（504 / 超时 / 静默卡死）时自动切备用渠道重试一次。静默看门狗的判据是"多久没有新 token"而不是总耗时——总超时会误杀慢但健康的请求。备用路由可单独设更大的分块（付费渠道无长度限制），主路由全挂时先发 1 块探针，失败立即整段切备用。
-5. **控制面板**：进入 **设置 → 插件 → 「dsh-session-translator」** 即可打开配置面板。面板分六张卡片（状态、基础、翻译模式、翻译模型、备用路由、高级）+ 一个试译框 + 底部保存栏，详见下方「设置项」。
+5. **控制面板**：进入 **设置 → 插件 → 「dsh-session-translator」** 即可打开配置面板。面板顶部是状态与路由信息，紧接着是保存栏，其下是六张设置卡片 + 一个试译框，详见下方「设置项」。
 
 ## 设置项
 
-配置文件路径：`$DSH_HOME/storages/cot-en2cn/config.json`（不放在 `settings.yaml` 中，不依赖 schema 库）。手动修改该文件是安全的，所有配置项在载入时都会经过校验并夹紧至合法范围。
+配置文件路径：`$DSH_HOME/storages/session-translator/config.json`（不放在 `settings.yaml` 中，不依赖 schema 库）。手动修改该文件是安全的，所有配置项在载入时都会经过校验并夹紧至合法范围。
 
 ### 面板结构
 
-设置页分为六张卡片，底部有一条独立的保存栏：
+设置页自上而下是：状态区 → 保存栏 → 六张设置卡片：
 
 ```text
-状态卡片   当前生效的翻译模型 / 备用路由 / 备用路由执行次数（各带「测试」按钮）
+状态区     当前生效的翻译模型 / 备用路由 / 备用路由执行次数（各带「测试」按钮）
+保存栏     所有改动已保存          [放弃改动] [保存]
 基础       启用、思考过程中也翻译
 翻译模式   自动 / 手动、地平线行数
 翻译模型   渠道 / 服务商、模型、拉取模型列表
@@ -131,9 +132,11 @@ dsh plugin --profile desktop remove dsh-session-translator
 高级       关闭思考、跳过已是中文、穿透式折叠、目标语言、
            单次请求上限、单次思考的翻译上限、并发请求数、译文文字大小
 试译       粘贴一段英文试翻
-─────────────────────────────────────────────────────
-保存栏     所有改动已保存          [放弃改动] [保存]
 ```
+
+> **保存栏为什么排在第二位**：面板整页较长（实测约 1800px）。保存栏若放在最底部，
+> 改完任意一项都得滚过全部卡片才能保存，等于把「怎么保存」藏起来了。
+> 现在它紧贴状态区，改完随手就能存。
 
 **面板是"编辑草稿 + 手动保存"模式**：所有改动先落在本地草稿，点「保存」（或按 `Ctrl+S`）才写盘。有未保存改动时顶部与保存栏都会提示，保存按钮从灰色变为可点；保存成功后立即回灰，不闪任何过渡色。点「放弃改动」回到服务端当前值。
 
@@ -170,14 +173,14 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 插件采用双端架构：
 - **宿主端（lib/index.js）**：注册八条本地同源路由：
-  - `GET /dsh-cot-en2cn/state` —— 当前配置 + 运行计数 + 生效路由
-  - `PUT /dsh-cot-en2cn/config` —— 整份配置写盘（面板保存的唯一入口）
-  - `POST /dsh-cot-en2cn/translate` —— 翻译一段文本（可带一次性草稿覆盖）
-  - `GET /dsh-cot-en2cn/providers` —— DSH 已注册渠道
-  - `GET /dsh-cot-en2cn/models` —— 渠道下的模型
-  - `GET /dsh-cot-en2cn/catalog` —— 渠道 + 模型两层清单（内置渠道排第一）
-  - `POST /dsh-cot-en2cn/test` —— 主路由 / 备用路由连通性自检
-  - `POST /dsh-cot-en2cn/cache/clear` —— 清空服务端缓存
+  - `GET /dsh-session-translator/state` —— 当前配置 + 运行计数 + 生效路由
+  - `PUT /dsh-session-translator/config` —— 整份配置写盘（面板保存的唯一入口）
+  - `POST /dsh-session-translator/translate` —— 翻译一段文本（可带一次性草稿覆盖）
+  - `GET /dsh-session-translator/providers` —— DSH 已注册渠道
+  - `GET /dsh-session-translator/models` —— 渠道下的模型
+  - `GET /dsh-session-translator/catalog` —— 渠道 + 模型两层清单（内置渠道排第一）
+  - `POST /dsh-session-translator/test` —— 主路由 / 备用路由连通性自检
+  - `POST /dsh-session-translator/cache/clear` —— 清空服务端缓存
   翻译请求默认通过 DSH 的 `ctx.llm.stream()` 发起，复用用户在 DSH 中既有的模型渠道与凭据；Provider 为 `http(s)://` 端点时直连该 Ollama 的 OpenAI 兼容接口（`/v1/chat/completions`），本地模型零配置可用。翻译接口与配置接口严格限制仅接收本机（`127.0.0.1`）且同源的请求。
 - **浏览器端（lib/client.js）**：利用 `MutationObserver` 监听对话视图，寻找带有 `data-variant="think"` 属性的思考节点（带类名兜底），在思考正文下方动态插入独立的译文 DOM。
 
@@ -192,9 +195,9 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ### 为什么译文缓存不会污染会话
 
-这是最容易被怀疑的地方，所以说明白：译文缓存在会话目录下的文件名是 `cot-en2cn-translations.json`。
+这是最容易被怀疑的地方，所以说明白：译文缓存在会话目录下的文件名是 `session-translator-translations.json`。
 
-DSH 自己的会话日志文件名叫 `session.v4.jsonl.zstd`（无压缩时 `session.v4.jsonl`）。它查找会话日志时用严格的文件名匹配——剥掉压缩后缀后必须形如 `session` 或 `session.vN`，而且必须以 `.jsonl` 结尾。`cot-en2cn-translations.json` 三条都不满足，DSH 会直接跳过这个文件。
+DSH 自己的会话日志文件名叫 `session.v4.jsonl.zstd`（无压缩时 `session.v4.jsonl`）。它查找会话日志时用严格的文件名匹配——剥掉压缩后缀后必须形如 `session` 或 `session.vN`，而且必须以 `.jsonl` 结尾。`session-translator-translations.json` 三条都不满足，DSH 会直接跳过这个文件。
 
 而且 DSH 读取一个会话时，只打开通过上述筛选得到的**唯一一个**日志文件，不会遍历目录里的其他文件。所以那 700KB 的译文缓存对你和模型都是不可见的——它只是插件自己的便签本。
 
@@ -282,7 +285,7 @@ A: 思考文本较长时，可以在设置中将「单块字符数」调小（�
 A: 不会。插件仅在 Web 对话视图的思考块后插入临时渲染节点，不进入轨迹记录。
 
 **Q: 写在会话文件夹里的翻译缓存，会不会被当成上下文喂给模型？**
-A: 不会。缓存文件名是 `cot-en2cn-translations.json`，而 DSH 只认 `session.v4.jsonl.zstd` 这类名字——必须形如 `session` 或 `session.vN` 且以 `.jsonl` 结尾，我们的文件名三条都不符合，DSH 查找会话日志时会直接跳过。它读一个会话也只打开唯一一个日志文件，不会遍历目录。详见上面的「为什么译文缓存不会污染会话」。
+A: 不会。缓存文件名是 `session-translator-translations.json`，而 DSH 只认 `session.v4.jsonl.zstd` 这类名字——必须形如 `session` 或 `session.vN` 且以 `.jsonl` 结尾，我们的文件名三条都不符合，DSH 查找会话日志时会直接跳过。它读一个会话也只打开唯一一个日志文件，不会遍历目录。详见上面的「为什么译文缓存不会污染会话」。
 
 **Q: DSH 升级后这个插件会不会挂？**
 A: 它不 import 任何 DSH 内部包、不占 slot、不碰渲染树，只用了 `webServer` / `slots` / `locale` 三个稳定 API，且每次调用前都做存在性检查。升级后最坏情况是思考块的 DOM 结构变了导致译文不显示——换个角度说，这时它会安静地什么都不做，而不会把界面搞坏。
@@ -290,22 +293,25 @@ A: 它不 import 任何 DSH 内部包、不占 slot、不碰渲染树，只用�
 **Q: 会与其它 Web 插件冲突吗？**
 A: 不会。插件不占用任何 slot 插槽，不替换既有渲染器。译文面板内按钮的点击事件均在捕获阶段拦截，不会误触发宿主思考块的展开或折叠。
 
-**Q: 卸载/升级命令里的名字到底该写哪个？`dsh-session-translator` 还是 `dsh-cot-en2cn`？**
-A: **写仓库名 `dsh-session-translator`**。插件是按仓库装载的，装进来后 profile 的
-`dependencies` 与 `dsh.profile.bundles` 里记的都是仓库名：
+**Q: 卸载/升级命令里的名字到底该写哪个？**
+A: **`dsh-session-translator` —— 只有这一个名字。**
+
+2026-10-19 起技术包名与显示名已统一：`package.json` 的 `name`、cordis 插件 id、
+`/dsh-session-translator/*` 路由前缀、`storages/session-translator` 配置目录
+全部是同一个值，不再有「显示名 / 技术名」两套体系。
 
 ```bash
 dsh plugin --profile desktop add    https://github.com/2994650874-coder/dsh-session-translator.git
 dsh plugin --profile desktop remove dsh-session-translator
 ```
 
-`dsh-cot-en2cn` 是**技术包名**（`package.json` 的 `name`），它同时是 npm 包名、
-cordis 插件 id、`/dsh-cot-en2cn/*` 路由前缀与 `storages/cot-en2cn` 配置目录。
-它**不是**装载名，用 `remove dsh-cot-en2cn` 会卸不掉。两者是两套命名，别混。
+> 历史说明：本插件曾用技术名 `dsh-cot-en2cn`（fork 自原作者仓库）。装的是
+> 2026-10-19 之前的版本时，那个版本仍需用 `dsh-cot-en2cn` 卸载；升级后统一用
+> `dsh-session-translator`。
 
 ## 质量保证
 
-项目内置 79 项可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
+项目内置 109 项可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
 
 ```bash
 npm test
@@ -323,17 +329,17 @@ npm test
 > 各文件的职责、阅读路径与关键不变量见上面的 [代码结构与阅读路径](#代码结构与阅读路径)。
 
 > 会话目录下与本插件相关的文件只有一个：
-> `~/.dsh/sessions/<项目>/<session-id>/cot-en2cn-translations.json`
+> `~/.dsh/sessions/<项目>/<session-id>/session-translator-translations.json`
 > —— 译文缓存，删会话即随之删除。
 
 ```text
-dsh-cot-en2cn/
+dsh-session-translator/
 ├── lib/
 │   ├── index.js              # 宿主端：配置读写 + 八条同源路由
 │   ├── engine.js             # 翻译引擎：分块缓存、并发闸门、超时、失败归类
 │   ├── text.js               # 分块与中文检测（纯函数）
 │   ├── config.js             # 默认值与校验夹紧
-│   ├── store.js              # $DSH_HOME/storages/cot-en2cn/config.json 原子读写
+│   ├── store.js              # $DSH_HOME/storages/session-translator/config.json 原子读写
 │   ├── languages.js          # 目标语言表
 │   └── client.js             # 浏览器端：DOM 监听、译文面板、设置面板
 ├── tools/
@@ -361,7 +367,7 @@ dsh-cot-en2cn/
 - **草稿 + 手动保存**（`manual-save`）：原来每次交互都直接 `PUT /config`，改错了没法撤销、多个改动之间面板会闪、5 秒轮询与写请求互相覆盖。现在所有改动落在本地草稿，点「保存」或按 `Ctrl+S` 才写盘；「放弃改动」回到服务端值。
 - **数字框缓冲提交**（`number-buffer`）：原来每敲一个数字发一次写请求，打 `8000` 会发 `8/80/800/8000` 四次，中间态被钳到下限、响应乱序时后到的旧值会盖掉新值（"填了不保存、回弹 0"）。现在失焦或回车才提交一次。
 - **保存按钮两档配色**（`save-button-tone`）：只在"灰（无可保存）↔ 普通（有改动）"之间切换，保存成功后直接回灰，不闪过渡色。保存中保持白色只置禁用，避免"白→灰→灰"的突兀闪回。
-- **独立保存栏**（`save-bar`）：与上方卡片同宽、单行高，贴在试译卡片下方。
+- **独立保存栏**（`save-bar`）：与上方卡片同宽、单行高。**位置在状态区正下方、第一张卡片之前**（原在最底部，因"保存按钮很难发现"移到顶部附近）。
 - **状态卡片精简**（`status-slim`）：只留"现在用的什么、能不能用"三行，每行带一个「测试」按钮；删掉译文缓存行与配置文件路径行。
 
 **路由与额度**

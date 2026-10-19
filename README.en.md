@@ -1,4 +1,4 @@
-# dsh-cot-en2cn
+# dsh-session-translator
 
 A Web plugin for DeepSeek Harness (DSH). When a model thinks in English, expanding the "Thinking" block automatically displays the Chinese translation right below the original text—without modifying a single byte of the original content.
 
@@ -32,7 +32,7 @@ A Web plugin for DeepSeek Harness (DSH). When a model thinks in English, expandi
 
 When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-thought outputs are frequently generated in English. Reading through extensive English reasoning chains is mentally exhausting for native Chinese speakers.
 
-`dsh-cot-en2cn` solves this directly:
+`dsh-session-translator` solves this directly:
 - **Zero Session Mutation**: Leaves conversation history completely untouched. It only injects a presentation panel in the browser DOM.
 - **Cost & Token Efficient**: Collapsed blocks are never translated; Chinese text is skipped automatically; translations are cached on both server and client.
 - **Zero Runtime Dependencies**: Uses Node.js standard library exclusively, importing zero third-party packages.
@@ -105,7 +105,7 @@ Configuration files stored under the storages directory are preserved upon remov
 
 ## Configuration Options
 
-Config file: `$DSH_HOME/storages/cot-en2cn/config.json` (not in `settings.yaml`, no schema library). Hand-editing it is safe: every value is validated and clamped on load.
+Config file: `$DSH_HOME/storages/session-translator/config.json` (not in `settings.yaml`, no schema library). Hand-editing it is safe: every value is validated and clamped on load.
 
 ### Panel layout
 
@@ -160,14 +160,14 @@ The preview box and both "Test" buttons evaluate the **current draft** without s
 
 The plugin consists of two runtime boundaries:
 - **Host Process (`lib/index.js`)**: Registers eight localhost-only, same-origin HTTP routes:
-  - `GET /dsh-cot-en2cn/state` — config + counters + effective route
-  - `PUT /dsh-cot-en2cn/config` — write the whole config (the panel's only save path)
-  - `POST /dsh-cot-en2cn/translate` — translate one text (optional one-shot draft override)
-  - `GET /dsh-cot-en2cn/providers` — registered DSH channels
-  - `GET /dsh-cot-en2cn/models` — models under a channel
-  - `GET /dsh-cot-en2cn/catalog` — channel + model catalog (built-in channel first)
-  - `POST /dsh-cot-en2cn/test` — primary / fallback route connectivity check
-  - `POST /dsh-cot-en2cn/cache/clear` — clear the server cache
+  - `GET /dsh-session-translator/state` — config + counters + effective route
+  - `PUT /dsh-session-translator/config` — write the whole config (the panel's only save path)
+  - `POST /dsh-session-translator/translate` — translate one text (optional one-shot draft override)
+  - `GET /dsh-session-translator/providers` — registered DSH channels
+  - `GET /dsh-session-translator/models` — models under a channel
+  - `GET /dsh-session-translator/catalog` — channel + model catalog (built-in channel first)
+  - `POST /dsh-session-translator/test` — primary / fallback route connectivity check
+  - `POST /dsh-session-translator/cache/clear` — clear the server cache
   Translations are dispatched via DSH's internal `ctx.llm.stream()`, reusing existing credentials and model profiles configured in DSH; when the Provider is an `http(s)://` endpoint the plugin talks to that Ollama's OpenAI-compatible API (`/v1/chat/completions`) directly, so a local model needs zero configuration. External and non-loopback requests are blocked.
 - **Browser Client (`lib/client.js`)**: Watches the active chat container using `MutationObserver`, anchors thinking blocks using the stable `data-variant="think"` attribute (with fallback class names), and mounts translation views directly into the DOM tree.
 
@@ -182,9 +182,9 @@ Four guarantees follow:
 
 ### Why the translation cache cannot pollute a session
 
-This is the most natural suspicion, so here is the detail. The cache file is named `cot-en2cn-translations.json` and sits inside the session directory.
+This is the most natural suspicion, so here is the detail. The cache file is named `session-translator-translations.json` and sits inside the session directory.
 
-DSH's own session log is named `session.v4.jsonl.zstd` (or `session.v4.jsonl` uncompressed). When DSH looks up a session log it applies a strict filename match: after stripping the compression suffix the name must be `session` or `session.vN`, and it must end in `.jsonl`. `cot-en2cn-translations.json` satisfies none of the three, so DSH skips it outright.
+DSH's own session log is named `session.v4.jsonl.zstd` (or `session.v4.jsonl` uncompressed). When DSH looks up a session log it applies a strict filename match: after stripping the compression suffix the name must be `session` or `session.vN`, and it must end in `.jsonl`. `session-translator-translations.json` satisfies none of the three, so DSH skips it outright.
 
 Moreover, reading a session opens exactly the one file that survived that filter — the directory is not enumerated. So the ~700 KB cache is invisible to both you and the model: it is only the plugin's own scratchpad.
 
@@ -272,7 +272,7 @@ A: Decrease the "单块字符数" (Chunk character limit) in settings (e.g., to 
 A: No. The plugin only mounts visual nodes inside the active conversational chat view.
 
 **Q: Could the translation cache written into the session folder be fed to the model as context?**
-A: No. The cache file is `cot-en2cn-translations.json`, while DSH only recognises names like `session.v4.jsonl.zstd` — the name must match `session` or `session.vN` and end in `.jsonl`. Our filename satisfies none of the three, so DSH skips it when looking up session logs. Reading a session opens exactly one log file; the directory is never enumerated. See "Why the translation cache cannot pollute a session" above.
+A: No. The cache file is `session-translator-translations.json`, while DSH only recognises names like `session.v4.jsonl.zstd` — the name must match `session` or `session.vN` and end in `.jsonl`. Our filename satisfies none of the three, so DSH skips it when looking up session logs. Reading a session opens exactly one log file; the directory is never enumerated. See "Why the translation cache cannot pollute a session" above.
 
 **Q: Will this plugin break after a DSH upgrade?**
 A: It imports no DSH internal package, claims no slot, and never touches the render tree — only the three stable APIs `webServer` / `slots` / `locale`, each guarded by an existence check. After an upgrade the worst case is that a changed thinking-block DOM stops the translation from rendering; in other words it goes quiet rather than breaking your UI.
@@ -280,24 +280,27 @@ A: It imports no DSH internal package, claims no slot, and never touches the ren
 **Q: Does it conflict with other UI extensions?**
 A: No. It occupies no predefined slot IDs and does not replace core renderers. Click events inside the translation block are captured and stopped from bubbling, preventing unintentional folding of parent thinking accordions.
 
-**Q: Which name goes in the remove/upgrade command — `dsh-session-translator` or `dsh-cot-en2cn`?**
-A: **Use the repository name, `dsh-session-translator`.** The plugin is loaded by
-repository, so the profile's `dependencies` and `dsh.profile.bundles` both record
-the repository name:
+**Q: Which name goes in the remove/upgrade command?**
+A: **`dsh-session-translator` — that is the only name.**
+
+Since 2026-10-19 the technical package name and the display name are unified:
+`package.json`'s `name`, the cordis plugin id, the `/dsh-session-translator/*`
+route prefix and the `storages/session-translator` config directory are all the
+same value. There are no longer two naming systems.
 
 ```bash
 dsh plugin --profile desktop add    https://github.com/2994650874-coder/dsh-session-translator.git
 dsh plugin --profile desktop remove dsh-session-translator
 ```
 
-`dsh-cot-en2cn` is the **technical package name** (`package.json`'s `name`). It is
-also the npm package name, the cordis plugin id, the `/dsh-cot-en2cn/*` route prefix
-and the `storages/cot-en2cn` config directory. It is **not** the load name — running
-`remove dsh-cot-en2cn` will not remove the plugin. Two separate naming systems.
+> History: this plugin used the technical name `dsh-cot-en2cn` (forked from the
+> original author's repository). A version installed before 2026-10-19 still needs
+> `dsh-cot-en2cn` to remove; after upgrading, use `dsh-session-translator`
+> everywhere.
 
 ## Quality Assurance
 
-The codebase includes 79 automated assertions that run without any external testing framework:
+The codebase includes 109 automated assertions that run without any external testing framework:
 
 ```bash
 npm test
@@ -315,13 +318,13 @@ Test suite breakdown:
 > For each file's responsibility, the reading path, and the invariants, see [Code Map & Reading Path](#code-map--reading-path) above.
 
 ```text
-dsh-cot-en2cn/
+dsh-session-translator/
 ├── lib/
 │   ├── index.js              # Host half: config IO + the eight same-origin routes
 │   ├── engine.js             # Translation engine: chunk cache, gate, deadlines, failures
 │   ├── text.js               # Chunking and script detection (pure)
 │   ├── config.js             # Defaults and clamping
-│   ├── store.js              # Atomic $DSH_HOME/storages/cot-en2cn/config.json
+│   ├── store.js              # Atomic $DSH_HOME/storages/session-translator/config.json
 │   ├── languages.js          # Target language table
 │   └── client.js             # Browser half: DOM observer, panels, settings section
 ├── tools/
