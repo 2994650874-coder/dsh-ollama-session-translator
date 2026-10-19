@@ -362,6 +362,55 @@ await test('the default fallback route is the built-in Bing channel', async () =
   assert.deepEqual(state.json.fallback, { provider: 'bing', model: 'bing-translate', idleMs: 5000, chunkChars: 0 })
 })
 
+await test('POST /test reports a failing route in band instead of an empty 400', async () => {
+  // [PATCH 2026-10-20 test-target-scope] 回归：`target` 曾在 try 里声明、在
+  // catch 里读，于是**主路由测试失败**这条路径本身抛 ReferenceError，被兜成
+  // HTTP 400 + 空 body，面板只能显示"测试失败"却给不出任何原因。
+  // 用例必须让主路由真的失败，才能踩到 catch 分支。
+  await call(routes, '/dsh-session-translator/config', {
+    method: 'PUT',
+    body: { section: { fallbackProvider: '', fallbackModel: '' } },
+  })
+  llm.failWith(new Error('上游 429'))
+  const failed = await call(routes, '/dsh-session-translator/test', {
+    method: 'POST',
+    body: { target: 'primary' },
+  })
+  // 关键断言：是 200 + JSON 原因，不是 400 空响应。
+  assert.equal(failed.status, 200)
+  assert.equal(failed.json.ok, false)
+  assert.equal(failed.json.target, 'primary')
+  assert.match(String(failed.json.error), /429/)
+  llm.failWith(null)
+
+  // 成功路径同样要如实回报测的是哪一条。
+  const ok = await call(routes, '/dsh-session-translator/test', {
+    method: 'POST',
+    body: { target: 'primary' },
+  })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.json.ok, true)
+  assert.equal(ok.json.target, 'primary')
+
+  // 备用路由测试失败时也必须标成 fallback，而不是写死 primary。
+  // 注意：`nowhere` 不是 http(s):// 也不是内置渠道，最终仍会走 ctx.get('llm')，
+  // 所以要让假 llm 真的报错，否则这条用例测到的是"成功"。
+  llm.failWith(new Error('备用上游 500'))
+  const fallbackFail = await call(routes, '/dsh-session-translator/test', {
+    method: 'POST',
+    body: { target: 'fallback', config: { fallbackProvider: 'nowhere', fallbackModel: 'm' } },
+  })
+  assert.equal(fallbackFail.status, 200)
+  assert.equal(fallbackFail.json.ok, false)
+  assert.equal(fallbackFail.json.target, 'fallback')
+  llm.failWith(null)
+
+  await call(routes, '/dsh-session-translator/config', {
+    method: 'PUT',
+    body: { section: { fallbackProvider: 'bing', fallbackModel: 'bing-translate' } },
+  })
+})
+
 await test('a discovered Ollama endpoint lists models and translates directly', async () => {
   // [PATCH 2026-10-05 ollama-discover] 用假 Ollama 服务器走通完整链路：
   // 自动发现 → 面板选模型（provider=端点地址）→ 引擎直连 /v1/chat/completions。

@@ -644,6 +644,17 @@ await test('the direct client maps finish reasons and surfaces failures', async 
 
 process.stdout.write('package manifest\n')
 
+await test('the reported VERSION matches package.json', async () => {
+  // [PATCH 2026-10-20 version-drift] lib/index.js 的 VERSION 常量曾经停在
+  // 0.1.0，跨过改名 / 0.2.1 / 0.2.1-1 / 0.2.1-2 都没跟，于是面板上的版本号
+  // 一直显示老值，排查时极易误判"装的是旧包"。这条断言把"记得改"变成机械检查。
+  const manifest = JSON.parse(await readFile(join(here, '..', 'package.json'), 'utf8'))
+  const source = await readFile(join(here, '..', 'lib', 'index.js'), 'utf8')
+  const found = source.match(/const VERSION = '([^']+)'/)
+  assert.ok(found !== null, 'lib/index.js must declare const VERSION')
+  assert.equal(found[1], manifest.version)
+})
+
 await test('the manifest satisfies the DSH bundle + client contract', async () => {
   const manifestPath = join(here, '..', 'package.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
@@ -1026,6 +1037,39 @@ await test('a fallback identical to the primary is reported as skipped', async (
   )
   // 相同路由不该被真的重试一次。
   assert.equal(calls, 1)
+})
+
+await test('a distinct-chunk fallback is reported as deferred, not as "identical"', async () => {
+  // [PATCH 2026-10-20 fallback-reason-defer] 回归：主路由 index-translate、备用
+  // bing、备用块 10000 > 主块 500 时，单块回退让位给整段重跑。旧实现落进
+  // "与主路由相同"分支，报出一句自相矛盾的话（两条路由明明不同）。
+  const llm = {
+    async *stream() {
+      throw new Error('翻译卡死：连续 5s 没有新 token')
+    },
+  }
+  const config = {
+    ...BASE_CONFIG,
+    maxChunkChars: 500,
+    maxInputChars: 100000,
+    fallbackProvider: 'bing',
+    fallbackModel: 'bing-translate',
+    fallbackChunkChars: 10000,
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => config,
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'https://index-translate.bilibili.com', model: 'Index-Translate-35B-A3B', source: 'override' }),
+  })
+  await assert.rejects(
+    () => engine.translate('A block long enough to be split into several chunks by the primary size.', {}),
+    (error) => {
+      // 绝不能再说"与主路由相同"——两条路由并不相同。
+      assert.doesNotMatch(error.message, /备用路由与主路由相同/)
+      assert.match(error.message, /备用路由（bing\/bing-translate）已改由整段重跑接替/)
+      return true
+    },
+  )
 })
 
 process.stdout.write(`\n${passed} passed, ${failed} failed\n`)

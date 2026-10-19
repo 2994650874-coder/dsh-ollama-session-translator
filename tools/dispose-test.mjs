@@ -214,14 +214,14 @@ console.log('dispose-test: translator lifecycle')
   ok('apply after disposer does not stack (startTranslator self-defends)',
      third.observersAlive === 1 && third.listenersAlive === 4 && third.timersPoll === 1,
      JSON.stringify(third))
-  ok('stopTranslator exists', /function stopTranslator\(\) \{/.test(src))
+  ok('stopTranslator exists', /function stopTranslator\(owner\) \{/.test(src))
   ok('stopTranslator disconnects the observer', /translator\.observer\.disconnect\(\)/.test(src))
   ok('stopTranslator clears syncTimer', /clearTimeout\(translator\.syncTimer\)/.test(src))
   ok('stopTranslator clears pollTimer', /clearInterval\(translator\.pollTimer\)/.test(src))
   ok('stopTranslator removes the scroll listener', /removeEventListener\('scroll', scheduleSync/.test(src))
   ok('stopTranslator resets started', /translator\.started = false/.test(src))
   ok('apply wraps start in ctx.effect', /ctx\.effect\(\(\) => \{/.test(src))
-  ok('effect returns the disposer', /return \(\) => stopTranslator\(\)/.test(src))
+  ok('effect returns the disposer', /return \(\) => stopTranslator\(owner\)/.test(src))
 }
 
 // ------------------------------------------- 5. translation panels survive stop
@@ -231,6 +231,56 @@ console.log('dispose-test: translator lifecycle')
   const stopBody = src.slice(src.indexOf('function stopTranslator()'), src.indexOf('function stopTranslator()') + 1800)
   ok('stopTranslator does not call removeAllPanels', !/removeAllPanels/.test(stopBody))
   ok('stopTranslator does not touch PANEL_ATTR panels', !/PANEL_ATTR\[|querySelectorAll/.test(stopBody))
+}
+
+// ------------------------------- 6. a STALE disposer must not kill the live run
+{
+  // [PATCH 2026-10-20 dispose-owner] apply() can run twice on the same module
+  // instance (double mount, fiber restart). The FIRST run's disposer may then
+  // fire *after* the second run rebuilt everything. Before the owner stamp,
+  // that late disposer disconnected the live observer and removed every
+  // listener — translation silently stopped for the rest of the page's life.
+  const c = loadClient()
+  c.apply()
+  const live = c.stats()
+  c.apply()                       // second run rebuilds; first run's disposer is now stale
+  ok('second apply still leaves exactly one set', c.stats().observersAlive === 1, JSON.stringify(c.stats()))
+
+  // Each apply() registers TWO effects: locale dictionaries, then the translator.
+  // The translator disposers are therefore the odd indices.
+  const translatorDisposers = c.effects.filter((_, index) => index % 2 === 1)
+  ok('two applies produce two translator disposers', translatorDisposers.length === 2, String(translatorDisposers.length))
+
+  // Fire the OLDER disposer only — the one belonging to the first run.
+  translatorDisposers[0]()
+  const afterStale = c.stats()
+  ok('a stale disposer leaves the observer connected',
+     afterStale.observersAlive === live.observersAlive,
+     'live=' + live.observersAlive + ' after=' + afterStale.observersAlive)
+  ok('a stale disposer leaves the listeners attached',
+     afterStale.listenersAlive === live.listenersAlive,
+     'live=' + live.listenersAlive + ' after=' + afterStale.listenersAlive)
+  ok('a stale disposer leaves the poll timer armed',
+     afterStale.timersPoll === live.timersPoll,
+     'live=' + live.timersPoll + ' after=' + afterStale.timersPoll)
+
+  // The CURRENT disposer must still tear everything down.
+  translatorDisposers[1]()
+  const afterCurrent = c.stats()
+  ok('the current disposer still tears everything down',
+     afterCurrent.observersAlive === 0 && afterCurrent.listenersAlive === 0 && afterCurrent.timersPoll === 0,
+     JSON.stringify(afterCurrent))
+}
+
+// ------------------------------- 7. owner stamp is wired in the source
+{
+  const src = readFileSync(CLIENT, 'utf8')
+  ok('startTranslator stamps a run id', /translator\.runId = \+\+translatorRunSeq/.test(src))
+  ok('startTranslator returns the run id', /return translator\.runId/.test(src))
+  ok('stopTranslator accepts an owner', /function stopTranslator\(owner\)/.test(src))
+  ok('stopTranslator ignores a stale owner', /owner !== translator\.runId\) return false/.test(src))
+  ok('the effect passes its owner through', /const owner = startTranslator\(locale\)/.test(src))
+  ok('the disposer forwards the owner', /stopTranslator\(owner\)/.test(src))
 }
 
 console.log('')

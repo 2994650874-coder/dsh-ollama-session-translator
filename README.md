@@ -313,17 +313,18 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## 质量保证
 
-项目内置 **122 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
+项目内置 **137 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
 
 ```bash
 npm test
 ```
 
 测试覆盖清单：
-- `tools/smoke.mjs` (**57 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同）、SSE 流式解析、包清单契约。
+- `tools/smoke.mjs` (**59 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同 / 让位给整段重跑）、`VERSION` 与 `package.json` 一致性、SSE 流式解析、包清单契约。
 - `tools/anonymous-test.mjs` (**10 项**)：Bing 匿名渠道的请求形状（一次性 text 数组、`to=zh-Hans`、不带 system、不带 cookie）、响应解析、语言 tag 映射、HTTP/网络/脏数据错误、心跳保活（慢请求必须吐 heartbeat 才不被看门狗误杀）、已取消的调用不发请求。
 - `tools/select-safe-test.mjs` (**11 项**)：译文面板幂等写入（同值不写）、选区保护（拖选时延迟补写、至多一个定时器）、跳过回显徽章契约。
-- `tools/host-integration.mjs` (**16 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截，以及**默认备用路由就是内置 Bing 渠道**。
+- `tools/dispose-test.mjs` (**40 项**)：生命周期归属——8 项资源建立与拆除、幂等、HMR 重入不叠加、**迟到的旧 disposer 不得拆掉当前这一轮**（回归：拆了会整页不再翻译）、locale 退订、面板不被撤。
+- `tools/host-integration.mjs` (**17 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截、**默认备用路由就是内置 Bing 渠道**，以及 **`/test` 失败时必须回 200 + 原因（不能是空 400）**。
 - `tools/parity-check.mjs`：比对插件内部封装的消息体与 DSH 原生 `createUserMessage`（找不到 `dsh-llm` 时自动跳过）。
 - `tools/browser-check.mjs`：在 Headless Chrome 中加载真实 `lib/client.js`，验证折叠不译、流式等待、中文跳过、DOM 事件冒泡阻断、总开关关闭即时隐藏及面板渲染。**需要可用的浏览器**，无浏览器环境会失败。
 
@@ -393,8 +394,12 @@ dsh-session-translator/
 
 ### 2026-10-20
 
+- **生命周期归属**（`dispose-owner`）：上一版给 `startTranslator()` 补了拆除路径，但拆的时候**不认主人**——`apply()` 在同一模块实例上跑两次（双挂载、fiber 重启）时，第一次的 disposer 迟到执行会把第二次刚建好的 observer 与 4 个 listener 一起拆掉，之后**整页再也不翻译**，只有刷新页面才能恢复。现在每次启动领一个递增的 `runId`，disposer 只在"自己仍是当前主人"时才动手。回归用例：`dispose-test.mjs` 第 6 组。
+- **失败原因修正**（`fallback-reason-defer`）：备用块比主块大时，单块回退会主动让位给整段重跑；旧实现却落进"备用路由与主路由相同"分支，于是主路由 `index-translate`、备用 `bing` 时谎报"两者相同"。现在如实写成"已改由整段重跑接替（备用块 N 字 > 主路由 M 字）"。
+- **自检失败不再空白**（`test-target-scope`）：`/test` 的 `target` 声明在 `try` 里、却在 `catch` 里读，于是**主路由测试失败**这条路径本身抛 `ReferenceError`，被兜成 HTTP 400 + 空 body，面板给不出任何原因。改为在 `try` 外声明。
+- **版本号跟住**（`version-drift`）：`lib/index.js` 的 `VERSION` 常量停在 `0.1.0`，跨过改名 / `0.2.1` / `0.2.1-1` / `0.2.1-2` 都没跟，面板一直报老版本号。现在对齐 `0.2.1-2`，并在 `smoke.mjs` 加断言直接比对 `package.json`，以后忘改会立刻失败。
 - **内置 Bing 备用渠道**（`builtin-bing`）：新增 `bing` 内置渠道（`edge.microsoft.com/translate/translatetext`，与宿主自带 `dsh-experimental-translator` 同一端点），并把它设为**备用路由的默认值**。理由：备用路由的唯一职责是"主路由挂了也要出译文"，所以它必须不依赖 key、不依赖 DSH 渠道注册、不占额度——Bing 匿名接口三条都满足（实测 0.2~0.9s，10000 字块也稳）。**不做 Google**：同款匿名端点在当前网络下实测不通（直连 `fetch failed`、走代理 429）。
-- **失败原因标注**（`fallback-reason`）：主路由失败时不再只抛它自己的原始错误。四种结局各自写明原因——备用未配置（并指出是渠道空还是模型空）、备用与主路由相同已跳过、备用也失败（两条错误并列）、备用成功（不报错）。
+- **失败原因标注**（`fallback-reason`）：主路由失败时不再只抛它自己的原始错误。各种结局各自写明原因——备用未配置（并指出是渠道空还是模型空）、备用与主路由相同已跳过、备用也失败（两条错误并列）、备用成功（不报错）。
 - **自检只测一条路由**（`test-target`）：`POST /test` 过去用真实引擎跑，备用路由会把它"救回来"，于是主路由挂了却显示「主路由测试通过」。现在自检禁用兜底，且失败时如实回报被测的那条路由（旧实现把 `target` 写死成 `primary`）。
 - **生命周期收口**（`dispose`）：`startTranslator()` 建的 8 项资源（1 个 `MutationObserver` 监听整个 `document.body`、3 个 document 级 listener、1 个 15 秒轮询、1 个 220ms 同步定时器、1 个 locale 订阅、1 个 visibilitychange 匿名监听）此前**没有任何拆除路径**，`disconnect()` 在整个 `client.js` 里一次都没被调用。`dsh-client-hmr` 只重载模块不刷新页面，所以每次热替换都会再叠一套、旧的还在跑。现在 `startTranslator` 由 `ctx.effect()` 包裹，清理函数里逐一拆除；`visibilitychange` 与 `locale.subscribe` 改具名可退订。译文行为不变。
 - **署名**：`author` 从上游 `Eyeing0721` 改为本分支维护者 `maomao299`，原作者移入 `contributors`（MIT 署名要求照旧满足，LICENSE 写的是 `dsh-cot-en2cn contributors`）。

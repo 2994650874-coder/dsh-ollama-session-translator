@@ -241,9 +241,10 @@ The largest file is divided by banner comments into four sections:
 ### Verify after editing
 
 ```bash
-node tools/smoke.mjs              # 53: chunking, cache, concurrency, fallback, clamping
+node tools/smoke.mjs              # 59: chunking, cache, concurrency, fallback, clamping
 node tools/select-safe-test.mjs   # 11: idempotent panel writes, selection protection
-node tools/host-integration.mjs   # 15: routes, config persistence, loopback guard
+node tools/dispose-test.mjs       # 40: resource lifecycle, disposer ownership
+node tools/host-integration.mjs   # 17: routes, config persistence, loopback guard
 ```
 
 All three must be green before committing. `browser-check.mjs` needs a real browser and fails in browserless environments.
@@ -301,16 +302,18 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## Quality Assurance
 
-The codebase includes **122** automated assertions that run without any external testing framework:
+The codebase includes **137** automated assertions that run without any external testing framework:
 
 ```bash
 npm test
 ```
 
 Test suite breakdown:
-- `tools/smoke.mjs` (**53**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog), SSE stream parsing, and package manifest constraints.
+- `tools/smoke.mjs` (**59**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog), failure-reason wording (unset / half-set / both failed / identical to primary / deferred to a whole-block re-run), `VERSION` consistency with `package.json`, SSE stream parsing, and package manifest constraints.
+- `tools/anonymous-test.mjs` (**10**): the anonymous Bing channel's request shape (one-shot text array, `to=zh-Hans`, no system prompt, no cookies), response parsing, language-tag mapping, HTTP/network/junk errors, heartbeat keep-alive (a slow call must emit heartbeats or the watchdog kills it), and an already-aborted caller issuing no request.
 - `tools/select-safe-test.mjs` (**11**): idempotent panel writes (same value is never re-written), selection protection (deferred re-render while the user is selecting, at most one timer), and the already-Chinese badge contract.
-- `tools/host-integration.mjs` (**15**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, and loopback security boundaries.
+- `tools/dispose-test.mjs` (**40**): lifecycle ownership — the eight resources are created and torn down, the disposer is idempotent, HMR re-entry does not stack, **a late disposer from an earlier run must not kill the current one** (regression: it used to stop all translation until reload), locale unsubscribe, and panels left in place on purpose.
+- `tools/host-integration.mjs` (**17**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, loopback security boundaries, the default Bing fallback, and that **`/test` reports a failure as 200 + reason instead of an empty 400**.
 - `tools/parity-check.mjs`: compares the plugin's message payload against DSH's `createUserMessage` (skips automatically when `dsh-llm` is not resolvable).
 - `tools/browser-check.mjs`: loads the real `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, Chinese skipping, event-propagation isolation, instant cleanup on global disable, and panel rendering. **Requires a working browser**; it fails in browserless environments.
 
@@ -376,6 +379,11 @@ Versioning rules:
 
 ### 2026-10-20
 
+- **Disposer ownership** (`dispose-owner`): the previous release gave `startTranslator()` a teardown path, but the teardown did not check **who** it belonged to. When `apply()` runs twice on the same module instance (double mount, fiber restart), the first run's disposer fires late and disconnects the observer plus all four listeners the second run just created — after which **nothing translates for the rest of the page's life** until a full reload. Each start now takes a monotonic `runId`, and a disposer only acts while it still owns the current run. Regression coverage: group 6 of `dispose-test.mjs`.
+- **Correct failure reason** (`fallback-reason-defer`): when the fallback chunk size is larger, per-chunk fallback deliberately defers to a whole-block re-run — but the old code fell into the "fallback identical to the primary" branch and claimed the two routes were the same even when the primary was `index-translate` and the fallback `bing`. It now says "handed over to a whole-block re-run (fallback chunk N > primary M)".
+- **Self-check no longer blank** (`test-target-scope`): `/test` declared `target` inside `try` and read it inside `catch`, so the **primary route failing** path itself threw `ReferenceError` and surfaced as HTTP 400 with an empty body — the panel could not show any reason. `target` is now declared outside the `try`.
+- **Version reported honestly** (`version-drift`): the `VERSION` constant in `lib/index.js` was stuck at `0.1.0` through the rename, `0.2.1`, `0.2.1-1` and `0.2.1-2`, so the panel always showed an old version. It now matches `0.2.1-2`, and `smoke.mjs` asserts it against `package.json` so a future drift fails immediately.
+- **Bing as the default fallback** (`builtin-bing`): a built-in `bing` channel (`edge.microsoft.com/translate/translatetext`, the same endpoint the bundled `dsh-experimental-translator` uses), set as the **default fallback route**. The fallback's only job is "still produce a translation when the primary dies", so it must need no key, no DSH channel registration and no quota — the anonymous Bing endpoint satisfies all three (measured 0.2–0.9 s, stable on 10 000-character chunks). **Google is deliberately not implemented**: the equivalent anonymous endpoint is unreachable on this network (direct `fetch failed`, 429 through the proxy).
 - **Lifecycle teardown** (`dispose`): the eight resources `startTranslator()` creates (a `MutationObserver` on all of `document.body`, three document-level listeners, a 15-second poll, a 220 ms sync timer, a locale subscription and an anonymous `visibilitychange` listener) had **no teardown path** — `disconnect()` was never called anywhere in `client.js`. `dsh-client-hmr` reloads a module without reloading the page, so every hot swap stacked another set on top of a still-running one. `startTranslator` is now wrapped in `ctx.effect()`, whose disposer tears everything down; `visibilitychange` and `locale.subscribe` are named and unsubscribable. Translation behaviour is unchanged.
 - **Attribution**: `author` moved from upstream `Eyeing0721` to the fork maintainer `maomao299`, with the original author in `contributors` (MIT attribution is still satisfied — LICENSE names `dsh-cot-en2cn contributors`).
 
