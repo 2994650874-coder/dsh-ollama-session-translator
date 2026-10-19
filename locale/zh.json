@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-session-translator",
+    "description": "把模型思考链与运行失败提示自动译成中文：原文零污染、按块缓存、零运行时依赖。"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-session-translator",
+    "description": "Translates the model's chain of thought and turn-failure notices into Chinese: untouched originals, per-block caching, zero runtime dependencies."
+  }
+}

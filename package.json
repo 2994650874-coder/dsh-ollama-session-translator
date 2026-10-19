@@ -16,7 +16,8 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "locale"
   ],
   "license": "MIT",
   "author": "Eyeing0721",
@@ -61,7 +62,7 @@
   },
   "dshhub": {
     "schemaVersion": 1,
-    "displayName": "dsh-ollama-session-translator",
+    "displayName": "dsh-session-translator",
     "summary": "展开英文思考块即可在下方阅读中文译文。零依赖 DSH 内部 API、不占 slot 不碰渲染树、不写会话日志——DSH 升级不影响它，卸载无残留。",
     "categories": [
       "Web UI",
