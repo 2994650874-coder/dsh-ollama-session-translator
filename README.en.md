@@ -340,6 +340,22 @@ dsh-session-translator/
 └── LICENSE
 ```
 
+## Version History
+
+The version follows the official DSH release (currently `0.2.1`). `0.1.0` is the
+original author's version of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn);
+`0.2.x` onward is the locally enhanced fork.
+
+| Version | Date | Theme | Highlights |
+|---|---|---|---|
+| `0.1.0` | 2026-09-19 | Upstream | Eyeing0721/dsh-cot-en2cn 0.1.0: translate English chain-of-thought in place |
+| `0.2.0` | 2026-10-05 | Fork baseline | Fold-through translation, chasing streaming, per-session cache, auto/manual modes, Ollama auto-discovery, explicit failure on an unset route |
+| `0.2.1` | 2026-10-06 | Interaction correctness | Partial selection/copy of translations (idempotent rendering + selection guard); "retranslate" bypasses the block cache; skipped Chinese is no longer disguised |
+| `0.2.2` | 2026-10-19 | Settings panel rework + dual routes | Six-card layout, model dropdowns, custom endpoint, fallback route with idle watchdog, built-in free channel |
+| `0.2.3` | 2026-10-19 | Error notice translation | Interventional translation of Harness turn-failure notices; panel border fix; plugin page title renamed |
+| `0.2.4` | 2026-10-19 | Channel adaptation & stability | Streaming locked by channel type; browser-check portability; model dropdown row height fix |
+| `0.2.5` | 2026-10-20 | Identity unification & panel usability | Package/routes/storage renamed to dsh-session-translator; save bar moved to the top; description rewritten around capabilities |
+
 ## Changelog (maintained fork)
 
 > This repository is a maintained fork of [Eyeing0721/dsh-cot-en2cn](https://github.com/Eyeing0721/dsh-cot-en2cn).

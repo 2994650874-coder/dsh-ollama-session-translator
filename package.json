@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-translator",
-  "version": "0.1.0",
-  "description": "Inline English-to-Chinese translation plugin for DeepSeek Harness (DSH) thinking blocks. Zero dependency on DSH internals, no slot, no renderer override, no session-log writes.",
+  "version": "0.2.5",
+  "description": "Translates English thinking blocks into Chinese using the model channels already configured in Harness — no separate setup. Translations persist with the session (no repeat cost, no leftovers), a fallback route takes over when the primary fails, and system error notices are translated too. Zero runtime dependencies.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -63,7 +63,7 @@
   "dshhub": {
     "schemaVersion": 1,
     "displayName": "dsh-session-translator",
-    "summary": "展开英文思考块即可在下方阅读中文译文。零依赖 DSH 内部 API、不占 slot 不碰渲染树、不写会话日志——DSH 升级不影响它，卸载无残留。",
+    "summary": "用 Harness 上已配置的模型渠道翻译英文思考过程，无需单独配置。译文随会话存储、不重复翻译也不残留；主路由失败自动切备用；系统报错也一并译出。",
     "categories": [
       "Web UI",
       "翻译",

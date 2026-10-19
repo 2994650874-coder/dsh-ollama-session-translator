@@ -1,6 +1,9 @@
 {
   "meta": {
     "title": "dsh-session-translator",
-    "description": "Translates the model's chain of thought and turn-failure notices into Chinese: untouched originals, per-block caching, zero runtime dependencies."
+    "description": {
+      "en": "Translates English thinking blocks into Chinese using the model channels already configured in Harness — no separate setup. Translations persist with the session, a fallback route takes over when the primary fails, and system error notices are translated too.",
+      "zh": "读取 Harness 上已配置的模型渠道，自动把英文思考过程译成中文，无需单独配置。译文随会话存储，不重复翻译也不残留；主路由失败自动切备用；系统报错也一并译出。"
+    }
   }
 }
