@@ -150,10 +150,10 @@ dsh plugin --profile desktop remove dsh-session-translator
 | 思考过程中也翻译 | 关 | 模型还在流式输出时就翻译（会重复调用模型，更费 token）。 |
 | 翻译模式 | 自动 | 自动：视口内思考行 ±「地平线行数」自动翻。手动：每块需点「待翻译」。 |
 | 地平线行数 | 5 | 自动模式下，翻译视口内思考行上下各 N 行。 |
-| 渠道 / 服务商 | 空 | 翻译请求走哪个渠道。列表来自 DSH 已注册渠道 + **内置的 Index-Translate（B站免费）**。也可切「自定义端点」手填 `http(s)://` 地址直连 OpenAI 兼容服务。**留空 = 不翻译**，不会自动用付费默认模型。 |
+| 渠道 / 服务商 | 空 | 翻译请求走哪个渠道。列表来自 DSH 已注册渠道 + **两个内置免费渠道（Index-Translate / Bing）**。也可切「自定义端点」手填 `http(s)://` 地址直连 OpenAI 兼容服务。**留空 = 不翻译**，不会自动用付费默认模型。 |
 | 模型 | 空 | 所选渠道下的模型。渠道切换时自动清空，避免把 A 渠道的模型名填到 B 渠道上。 |
-| 备用渠道 / 服务商 | 空 | 主路由失败时重试用的渠道。留空 = 不启用备用路由。 |
-| 备用模型 | 空 | 同上。 |
+| 备用渠道 / 服务商 | **Bing** | 主路由失败时重试用的渠道。**默认内置 Bing 匿名翻译**（无需 key、不占额度）。留空 = 不启用备用路由。 |
+| 备用模型 | **bing-translate** | 同上。Bing 渠道的固定占位模型名。 |
 | 备用单次请求上限 | 0 | 备用路由自己的分块大小。付费渠道无长度限制，拉大可减少请求次数（少付重复的系统提示词）。**0 = 跟随主路由**。 |
 | 静默超时 | 5000 毫秒 | 连续这么久没有新 token 就判定卡死并切备用路由。判据是"多久没新 token"而不是总耗时——实测健康流式的 token 间隔中位数 26ms、最大 315ms，5000ms 有 14 倍余量。0 = 关闭看门狗。 |
 | 关闭思考（推荐） | 开 | 请求里带 `reasoningEffort: "off"`，让翻译不产生思考 token。**不是所有渠道都支持**：不支持时自动降级重试并记住，不会因此翻不了译。实测关掉后 3800 字从 27.2 秒降到 3.1 秒。 |
@@ -212,12 +212,13 @@ DSH 自己的会话日志文件名叫 `session.v4.jsonl.zstd`（无压缩时 `se
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `lib/index.js` | ~617 | **宿主端入口**。注册八条同源路由、持有配置、创建引擎、组装 `statePayload`。 |
-| `lib/engine.js` | ~602 | **翻译引擎**。分块 → 并发闸门 → 调模型 → 缓存；含备用路由、静默看门狗、探针模式。 |
+| `lib/engine.js` | ~680 | **翻译引擎**。分块 → 并发闸门 → 调模型 → 缓存；含备用路由、静默看门狗、探针模式、失败原因标注。 |
 | `lib/client.js` | ~2223 | **浏览器端**。两半：译文面板（DOM 增强）+ 设置面板（React）。 |
 | `lib/text.js` | ~158 | **纯函数**。分块、边界截断、中文检测、token 估算。无副作用，最好测。 |
 | `lib/config.js` | ~102 | 默认值 + `normalizeConfig` 校验夹紧。 |
 | `lib/store.js` | ~263 | 配置文件与会话级译文缓存的原子读写。 |
 | `lib/ollama.js` | ~281 | Ollama 端点探测 + OpenAI 兼容客户端（SSE 流式）。 |
+| `lib/anonymous.js` | ~150 | **Bing 匿名翻译**客户端（非 OpenAI 协议，整段返回 + 心跳保活）。 |
 | `lib/languages.js` | ~23 | 目标语言表。 |
 
 ### 按任务找入口
@@ -228,6 +229,7 @@ DSH 自己的会话日志文件名叫 `session.v4.jsonl.zstd`（无压缩时 `se
 | 新增一条后端接口 | `index.js` 的 `ROUTES` + `route()` 调用 |
 | 分块 / 截断 / 中文判定 | `text.js` |
 | 备用路由、看门狗、重试策略 | `engine.js` 的 `callModel()` 与 `translate()` |
+| 匿名渠道（Bing）的请求形状 | `anonymous.js` 的 `createBingClient()` |
 | 译文面板的渲染与交互 | `client.js` 的 `inline translator` 段（L~320 起） |
 | 配置项默认值 / 取值范围 | `config.js` 的 `DEFAULT_CONFIG` 与 `NUMBER_BOUNDS` |
 
@@ -253,7 +255,7 @@ DSH 自己的会话日志文件名叫 `session.v4.jsonl.zstd`（无压缩时 `se
 ### 改完怎么验证
 
 ```bash
-node tools/smoke.mjs              # 53 项：分块、缓存、并发、备用路由、配置夹紧
+node tools/smoke.mjs              # 57 项：分块、缓存、并发、备用路由、失败原因、配置夹紧
 node tools/select-safe-test.mjs   # 11 项：面板幂等写入、选区保护
 node tools/host-integration.mjs   # 15 项：路由、配置持久化、越权拦截
 ```
@@ -311,16 +313,17 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## 质量保证
 
-项目内置 109 项可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
+项目内置 **122 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
 
 ```bash
 npm test
 ```
 
 测试覆盖清单：
-- `tools/smoke.mjs` (**53 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗）、SSE 流式解析、包清单契约。
+- `tools/smoke.mjs` (**57 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同）、SSE 流式解析、包清单契约。
+- `tools/anonymous-test.mjs` (**10 项**)：Bing 匿名渠道的请求形状（一次性 text 数组、`to=zh-Hans`、不带 system、不带 cookie）、响应解析、语言 tag 映射、HTTP/网络/脏数据错误、心跳保活（慢请求必须吐 heartbeat 才不被看门狗误杀）、已取消的调用不发请求。
 - `tools/select-safe-test.mjs` (**11 项**)：译文面板幂等写入（同值不写）、选区保护（拖选时延迟补写、至多一个定时器）、跳过回显徽章契约。
-- `tools/host-integration.mjs` (**15 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘及越权请求拦截。
+- `tools/host-integration.mjs` (**16 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截，以及**默认备用路由就是内置 Bing 渠道**。
 - `tools/parity-check.mjs`：比对插件内部封装的消息体与 DSH 原生 `createUserMessage`（找不到 `dsh-llm` 时自动跳过）。
 - `tools/browser-check.mjs`：在 Headless Chrome 中加载真实 `lib/client.js`，验证折叠不译、流式等待、中文跳过、DOM 事件冒泡阻断、总开关关闭即时隐藏及面板渲染。**需要可用的浏览器**，无浏览器环境会失败。
 
@@ -357,7 +360,7 @@ dsh-session-translator/
 
 ## 版本演进
 
-**当前版本 `0.2.1-1`，与 DSH 官方版本号对齐。**
+**当前版本 `0.2.1-2`，与 DSH 官方版本号对齐。**
 
 版本号规则：
 
@@ -381,7 +384,8 @@ dsh-session-translator/
 | `0.1.5` | 2026-10-19 | 渠道适配与稳定性 | 流式翻译按渠道类型锁定；browser-check 去硬编码；模型下拉行高修复 |
 | `0.1.6` | 2026-10-20 | 技术名统一 + 面板可用性 | 包名/路由/存储目录全量改为 dsh-session-translator；保存栏移到顶部；插件描述改为卖点导向 |
 | `0.2.1` | 2026-10-20 | 与官方对齐 | 与 DSH 官方对齐；插件描述中英双语；版本体系建立 |
-| `0.2.1-1` | 2026-10-20 | **当前版本 · npm 首发** | 生命周期收口（dispose）；`author` 改为本分支维护者、原作者移入 `contributors`；首次发布到 npm（prerelease 通道） |
+| `0.2.1-1` | 2026-10-20 | npm 首发 | 生命周期收口（dispose）；`author` 改为本分支维护者、原作者移入 `contributors`；首次发布到 npm（prerelease 通道） |
+| `0.2.1-2` | 2026-10-20 | **当前版本 · 内置 Bing 备用渠道** | 内置 Bing 匿名翻译渠道并设为**备用路由默认值**（无需 key、不占额度）；失败原因标注（主路由失败时明示备用路由为何没接住）；自检按钮只测被点的那条路由 |
 
 ## 更新日志（本地增强分支）
 
@@ -389,6 +393,9 @@ dsh-session-translator/
 
 ### 2026-10-20
 
+- **内置 Bing 备用渠道**（`builtin-bing`）：新增 `bing` 内置渠道（`edge.microsoft.com/translate/translatetext`，与宿主自带 `dsh-experimental-translator` 同一端点），并把它设为**备用路由的默认值**。理由：备用路由的唯一职责是"主路由挂了也要出译文"，所以它必须不依赖 key、不依赖 DSH 渠道注册、不占额度——Bing 匿名接口三条都满足（实测 0.2~0.9s，10000 字块也稳）。**不做 Google**：同款匿名端点在当前网络下实测不通（直连 `fetch failed`、走代理 429）。
+- **失败原因标注**（`fallback-reason`）：主路由失败时不再只抛它自己的原始错误。四种结局各自写明原因——备用未配置（并指出是渠道空还是模型空）、备用与主路由相同已跳过、备用也失败（两条错误并列）、备用成功（不报错）。
+- **自检只测一条路由**（`test-target`）：`POST /test` 过去用真实引擎跑，备用路由会把它"救回来"，于是主路由挂了却显示「主路由测试通过」。现在自检禁用兜底，且失败时如实回报被测的那条路由（旧实现把 `target` 写死成 `primary`）。
 - **生命周期收口**（`dispose`）：`startTranslator()` 建的 8 项资源（1 个 `MutationObserver` 监听整个 `document.body`、3 个 document 级 listener、1 个 15 秒轮询、1 个 220ms 同步定时器、1 个 locale 订阅、1 个 visibilitychange 匿名监听）此前**没有任何拆除路径**，`disconnect()` 在整个 `client.js` 里一次都没被调用。`dsh-client-hmr` 只重载模块不刷新页面，所以每次热替换都会再叠一套、旧的还在跑。现在 `startTranslator` 由 `ctx.effect()` 包裹，清理函数里逐一拆除；`visibilitychange` 与 `locale.subscribe` 改具名可退订。译文行为不变。
 - **署名**：`author` 从上游 `Eyeing0721` 改为本分支维护者 `maomao299`，原作者移入 `contributors`（MIT 署名要求照旧满足，LICENSE 写的是 `dsh-cot-en2cn contributors`）。
 
@@ -413,6 +420,7 @@ dsh-session-translator/
 **内置渠道**
 
 - **Index-Translate（B站免费）**（`builtin-index-translate`）：不是 DSH 注册渠道，但作为内置渠道排在 `/catalog` 第一位，无需手填端点、无需 key。内置三个模型：`Index-Translate-35B-A3B`（旗舰）、`index-mt-9b`（均衡）、`index-mt-2b`（最快）。**实测限制**：非流式 >3000 字必 504，并发 2 路 × 2000 字是安全值。
+- **Bing 翻译（匿名·免费）**（`builtin-bing`）：同样是内置渠道（`provider` 填 `bing`，`model` 填 `bing-translate`），端点为 `https://edge.microsoft.com/translate/translatetext`，与宿主自带 `dsh-experimental-translator` 一致。它**不是** OpenAI 协议（`lib/anonymous.js` 单独适配），整段返回、无流式——等待期间客户端自己发心跳 chunk，否则会被静默看门狗误判成卡死。**质量边界**：会把行内反引号改写成中文引号（`` `x` `` → “x”），代码块围栏也可能被改；作为兜底可接受，逐字保真的场景请用主路由。
 
 **引擎修正**
 

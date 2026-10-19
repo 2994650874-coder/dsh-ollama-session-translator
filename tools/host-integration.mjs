@@ -332,6 +332,13 @@ await test('POST /cache/clear drops cached chunks', async () => {
 })
 
 await test('a model failure is reported in band with 502', async () => {
+  // [PATCH 2026-10-20 builtin-bing] 默认备用路由现在是 Bing 匿名渠道，会把这次
+  // 上游失败"救回来"（并真的打一次外网），本条用例要测的是**失败透传**，所以
+  // 先显式关掉备用路由（传 '' = 用户主动不启用兜底）。
+  await call(routes, '/dsh-session-translator/config', {
+    method: 'PUT',
+    body: { section: { fallbackProvider: '', fallbackModel: '' } },
+  })
   llm.failWith(new Error('上游 429'))
   const response = await call(routes, '/dsh-session-translator/translate', {
     method: 'POST',
@@ -341,6 +348,18 @@ await test('a model failure is reported in band with 502', async () => {
   assert.equal(response.json.ok, false)
   assert.match(String(response.json.error), /429/)
   llm.failWith(null)
+  // 还原默认备用渠道，后续用例的假设不变。
+  await call(routes, '/dsh-session-translator/config', {
+    method: 'PUT',
+    body: { section: { fallbackProvider: 'bing', fallbackModel: 'bing-translate' } },
+  })
+})
+
+await test('the default fallback route is the built-in Bing channel', async () => {
+  const state = await call(routes, '/dsh-session-translator/state')
+  assert.equal(state.json.config.fallbackProvider, 'bing')
+  assert.equal(state.json.config.fallbackModel, 'bing-translate')
+  assert.deepEqual(state.json.fallback, { provider: 'bing', model: 'bing-translate', idleMs: 5000, chunkChars: 0 })
 })
 
 await test('a discovered Ollama endpoint lists models and translates directly', async () => {

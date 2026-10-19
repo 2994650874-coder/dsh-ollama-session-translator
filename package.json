@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-translator",
-  "version": "0.2.1-1",
+  "version": "0.2.1-2",
   "description": "Translates English thinking blocks into Chinese using the model channels already configured in Harness — no separate setup. Translations persist with the session (no repeat cost, no leftovers), a fallback route takes over when the primary fails, and system error notices are translated too. Zero runtime dependencies.",
   "type": "module",
   "main": "./lib/index.js",
@@ -50,7 +50,7 @@
   ],
   "dependencies": {},
   "scripts": {
-    "test": "node tools/smoke.mjs && node tools/live-lock-check.mjs && node tools/err-i18n-test.mjs && node tools/select-safe-test.mjs && node tools/host-integration.mjs && node tools/parity-check.mjs && node tools/browser-check.mjs"
+    "test": "node tools/smoke.mjs && node tools/anonymous-test.mjs && node tools/live-lock-check.mjs && node tools/err-i18n-test.mjs && node tools/select-safe-test.mjs && node tools/host-integration.mjs && node tools/dispose-test.mjs && node tools/parity-check.mjs && node tools/browser-check.mjs"
   },
   "dsh": {
     "bundle": {

@@ -688,7 +688,7 @@ await test('the plugin declares no runtime dependencies', async () => {
   // A linked source directory cannot resolve bare @deepseek-ai/* specifiers, so
   // the plugin must stay dependency-free to work in every install shape.
   assert.deepEqual(manifest.dependencies ?? {}, {})
-  const sources = ['index.js', 'client.js', 'config.js', 'store.js', 'engine.js', 'text.js', 'languages.js', 'ollama.js']
+  const sources = ['index.js', 'client.js', 'config.js', 'store.js', 'engine.js', 'text.js', 'languages.js', 'ollama.js', 'anonymous.js']
   for (const file of sources) {
     const source = await readFile(join(lib, file), 'utf8')
     const bare = [...source.matchAll(/^\s*import[^'"]*from\s+'([^'.][^'"]*)'/gm)].map((match) => match[1])
@@ -940,6 +940,92 @@ await test('fallbackChunkChars = 0 keeps the primary chunk size', async () => {
   const backupSizes = calls.filter((c) => c.provider === 'backup').map((c) => c.chars)
   // 0 = 跟随主路由，备用请求的块大小应与主路由一致（都很小）
   assert.ok(backupSizes.every((size) => size <= 500), `backup should follow the primary chunk size, got ${JSON.stringify(backupSizes)}`)
+})
+
+// [PATCH 2026-10-20 fallback-reason] 失败原因必须写清"备用路由为什么没接住"
+process.stdout.write('fallback failure reasons\n')
+
+await test('an unset fallback says so instead of surfacing the raw primary error', async () => {
+  const llm = {
+    async *stream() {
+      throw new Error('翻译卡死：连续 5s 没有新 token')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: '', fallbackModel: '' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'https://index-translate.bilibili.com', model: 'Index-Translate-35B-A3B', source: 'override' }),
+  })
+  await assert.rejects(
+    () => engine.translate('A sentence that will fail upstream.', {}),
+    (error) => {
+      assert.match(error.message, /主路由（https:\/\/index-translate\.bilibili\.com\/Index-Translate-35B-A3B）失败/)
+      assert.match(error.message, /翻译卡死：连续 5s 没有新 token/)
+      assert.match(error.message, /备用路由未设置（渠道与模型都为空），因此没有重试/)
+      assert.equal(error.code, 'TRANSLATOR_ROUTE_FAILED')
+      return true
+    },
+  )
+})
+
+await test('a half-set fallback names the missing field', async () => {
+  const llm = {
+    async *stream() {
+      throw new Error('HTTP 504')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'bing', fallbackModel: '' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await assert.rejects(
+    () => engine.translate('Half configured fallback here.', {}),
+    /备用路由未设置（备用模型为空），因此没有重试/,
+  )
+})
+
+await test('both routes failing names both sides', async () => {
+  const llm = {
+    async *stream(request) {
+      if (request.provider === 'primary') throw new Error('上游 504')
+      throw new Error('Bing 翻译请求失败（HTTP 500）')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'bing', fallbackModel: 'bing-translate' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await assert.rejects(
+    () => engine.translate('Both routes are down right now.', {}),
+    (error) => {
+      assert.match(error.message, /主路由（primary\/m）失败：上游 504/)
+      assert.match(error.message, /备用路由（bing\/bing-translate）也失败：Bing 翻译请求失败（HTTP 500）/)
+      return true
+    },
+  )
+})
+
+await test('a fallback identical to the primary is reported as skipped', async () => {
+  let calls = 0
+  const llm = {
+    async *stream() {
+      calls += 1
+      throw new Error('HTTP 504')
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, fallbackProvider: 'primary', fallbackModel: 'm' }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await assert.rejects(
+    () => engine.translate('Same route on both sides.', {}),
+    /备用路由与主路由相同（primary\/m），已跳过/,
+  )
+  // 相同路由不该被真的重试一次。
+  assert.equal(calls, 1)
 })
 
 process.stdout.write(`\n${passed} passed, ${failed} failed\n`)

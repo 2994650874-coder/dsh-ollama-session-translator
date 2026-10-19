@@ -53,6 +53,7 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 > - **Fallback route + silence watchdog**: when the primary route 504s, times out, or goes silent, retry once on a backup channel. The watchdog keys on "how long since the last new token" rather than total elapsed time (a total timeout kills slow-but-healthy requests).
 > - **Independent fallback chunk size**: paid channels have no length cap, so the backup route can use a larger chunk size. When the primary route is entirely down, one probe chunk decides the switch, instead of waiting out N x 30s gateway timeouts.
 > - **Built-in Index-Translate channel**: Bilibili's free translation API ships as a built-in channel ranked first in the provider list — no endpoint URL, no API key.
+> - **Built-in Bing fallback**: an anonymous, key-free Bing translation channel ships as the **default fallback route** — when the primary channel dies, translation keeps working without a key, without a DSH channel registration, and without spending quota.
 > - **Rebuilt settings panel**: hand-drawn dropdowns (Electron closes native popups on any parent re-render), draft + manual save (Ctrl+S included), buffered number inputs, and per-route quota settings.
 > - **Environment adaptation**: adapted to DSH Desktop 0.2.1-rc.2 (relaxed same-origin checks in the desktop webview, sessions API differences, dual-strategy thinking-block DOM lookup).
 
@@ -137,9 +138,9 @@ The preview box and both "Test" buttons evaluate the **current draft** without s
 | Translate while thinking | off | Translate while the model is still streaming (more model calls, more tokens). |
 | Translation mode | auto | Auto: translate thinking rows in view ± horizon. Manual: each block waits for a click. |
 | Horizon rows | 5 | In auto mode, translate N rows above and below the viewport. |
-| Channel / provider | empty | Which channel handles translation. The list is DSH's registered channels plus the **built-in Index-Translate (Bilibili, free)**. A "custom endpoint" toggle accepts an `http(s)://` URL for any OpenAI-compatible service. **Empty means no translation** — it never silently falls back to a paid default model. |
+| Channel / provider | empty | Which channel handles translation. The list is DSH's registered channels plus the **two built-in free channels (Index-Translate / Bing)**. A "custom endpoint" toggle accepts an `http(s)://` URL for any OpenAI-compatible service. **Empty means no translation** — it never silently falls back to a paid default model. |
 | Model | empty | Model under the selected channel. Cleared when the channel changes. |
-| Fallback channel | empty | Channel to retry on when the primary route fails. Empty disables the fallback. |
+| Fallback channel | **Bing** | Channel to retry on when the primary route fails. Defaults to the **built-in anonymous Bing channel** (no key, no quota). Empty disables the fallback. |
 | Fallback model | empty | Same as above. |
 | Fallback max chars per request | 0 | The fallback route's own chunk size. Paid channels have no length cap, so a larger chunk means fewer requests. **0 follows the primary route.** |
 | Silence timeout | 5000 ms | If no new token arrives for this long, the call is treated as stuck and the fallback route takes over. The criterion is "time since last token", not total elapsed time — measured healthy streams have a median 26 ms gap and a 315 ms maximum, so 5000 ms carries a 14x margin. 0 disables the watchdog. |
@@ -300,7 +301,7 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## Quality Assurance
 
-The codebase includes 109 automated assertions that run without any external testing framework:
+The codebase includes **122** automated assertions that run without any external testing framework:
 
 ```bash
 npm test
@@ -342,7 +343,7 @@ dsh-session-translator/
 
 ## Version History
 
-**Current version `0.2.1-1`, aligned with the official DSH release number.**
+**Current version `0.2.1-2`, aligned with the official DSH release number.**
 
 Versioning rules:
 
@@ -399,6 +400,8 @@ Versioning rules:
 **Built-in channel**
 
 - **Index-Translate (Bilibili, free)** (`builtin-index-translate`): not a registered DSH channel, so it ships as a built-in entry ranked first in `/catalog` — no endpoint URL, no API key. Three models: `Index-Translate-35B-A3B` (flagship), `index-mt-9b` (balanced), `index-mt-2b` (fastest). **Measured limits**: non-streaming requests above 3000 characters always 504; concurrency 2 x 2000 characters is the safe ceiling.
+- **Bing translation (anonymous, free)** (`builtin-bing`): also a built-in channel (`provider: bing`, `model: bing-translate`), endpoint `https://edge.microsoft.com/translate/translatetext` — the same one the bundled `dsh-experimental-translator` uses. It is **not** an OpenAI protocol (adapted in `lib/anonymous.js`), returns the whole translation in one response, and the client emits heartbeat chunks while waiting so the silence watchdog does not mistake a slow response for a stall. **Quality caveat**: it rewrites inline backticks into typographic quotes (`` `x` `` becomes “x”) and may mangle code fences; acceptable as a fallback, use the primary route when verbatim fidelity matters.
+- **Failure reasons** (`fallback-reason`): when the primary route fails, the error now says why the fallback did not catch it — not configured (and which half is empty), identical to the primary, also failed (both errors listed), or succeeded (no error).
 
 **Engine corrections**
 
