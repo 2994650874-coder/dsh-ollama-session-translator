@@ -313,20 +313,21 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## 质量保证
 
-项目内置 **137 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
+项目内置 **168 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
 
 ```bash
 npm test
 ```
 
 测试覆盖清单：
-- `tools/smoke.mjs` (**59 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同 / 让位给整段重跑）、`VERSION` 与 `package.json` 一致性、SSE 流式解析、包清单契约。
+- `tools/smoke.mjs` (**60 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗 / **执行次数计数**）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同 / 让位给整段重跑）、`VERSION` 与 `package.json` 一致性、SSE 流式解析、包清单契约。
 - `tools/anonymous-test.mjs` (**10 项**)：Bing 匿名渠道的请求形状（一次性 text 数组、`to=zh-Hans`、不带 system、不带 cookie）、响应解析、语言 tag 映射、HTTP/网络/脏数据错误、心跳保活（慢请求必须吐 heartbeat 才不被看门狗误杀）、已取消的调用不发请求。
 - `tools/select-safe-test.mjs` (**11 项**)：译文面板幂等写入（同值不写）、选区保护（拖选时延迟补写、至多一个定时器）、跳过回显徽章契约。
 - `tools/dispose-test.mjs` (**40 项**)：生命周期归属——8 项资源建立与拆除、幂等、HMR 重入不叠加、**迟到的旧 disposer 不得拆掉当前这一轮**（回归：拆了会整页不再翻译）、locale 退订、面板不被撤。
 - `tools/host-integration.mjs` (**17 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截、**默认备用路由就是内置 Bing 渠道**，以及 **`/test` 失败时必须回 200 + 原因（不能是空 400）**。
 - `tools/parity-check.mjs`：比对插件内部封装的消息体与 DSH 原生 `createUserMessage`（找不到 `dsh-llm` 时自动跳过）。
 - `tools/browser-check.mjs`：在 Headless Chrome 中加载真实 `lib/client.js`，验证折叠不译、流式等待、中文跳过、DOM 事件冒泡阻断、总开关关闭即时隐藏及面板渲染。**需要可用的浏览器**，无浏览器环境会失败。
+- `tools/fold-mode-check.mjs` (**8 项**)：**折叠模式**（`foldOriginal: true`，用户的默认模式）的浏览器回归。折叠行的 body 被 React 卸载，原文只能从 fiber props 读（`rawRowText` → `__reactFiber$` → `memoizedProps.text`）；读失败会静默退回 DOM 摘要，摘要短于 `MIN_CHARS` 就**不翻译且不报错**。用真实 React 渲染 `ReasoningRow` 断言：面板出现、`/translate` 真被调用、发出的是完整原文而非折叠摘要。**需要可用的浏览器**。
 
 ## 目录结构
 
@@ -394,6 +395,9 @@ dsh-session-translator/
 
 ### 2026-10-20
 
+- **备用执行次数不再恒为 0**（`fallback-counter`）：整段重跑走 `runPlan(fallbackRoute, …)`，两个调用点都没有 `stats.fallbacks += 1`，只有单块回退会计数。而「备用块 10000 > 主块 2400」的配置走的正是整段重跑，于是面板永远显示「备用路由执行次数 0」——用户以为兜底一次都没生效，实际上面板上那句译文就是 Bing 出的。现在一轮翻译里只要有块真由备用路由翻出来就记一次（多块不重复累加）。
+- **自检不再谎报"备用路由未设置"**（`test-message-honest`）：自检刻意清空备用配置以做到"只测一条路由"，引擎于是报「备用路由未设置（渠道与模型都为空），因此没有重试」。可用户明明配了 `bing/bing-translate`，面板下一行还显示备用测试通过——这是一句自相矛盾的假话。现在改成「自检只测这一条路由，不启用备用兜底（配置本身不受影响）」。
+- **折叠模式浏览器回归**（`fold-mode-check`）：`browser-check.mjs` 里 `foldOriginal` 出现 **0 次**，而折叠模式是默认模式且走完全不同的取文路径——折叠行的 body 被 React 卸载，原文只能从 fiber props 读；读失败会静默退回 DOM 摘要，摘要短于 `MIN_CHARS` 就**不翻译且不报错**。新增 8 项断言用真实 React 渲染 `ReasoningRow` 覆盖这条路径。
 - **生命周期归属**（`dispose-owner`）：上一版给 `startTranslator()` 补了拆除路径，但拆的时候**不认主人**——`apply()` 在同一模块实例上跑两次（双挂载、fiber 重启）时，第一次的 disposer 迟到执行会把第二次刚建好的 observer 与 4 个 listener 一起拆掉，之后**整页再也不翻译**，只有刷新页面才能恢复。现在每次启动领一个递增的 `runId`，disposer 只在"自己仍是当前主人"时才动手。回归用例：`dispose-test.mjs` 第 6 组。
 - **失败原因修正**（`fallback-reason-defer`）：备用块比主块大时，单块回退会主动让位给整段重跑；旧实现却落进"备用路由与主路由相同"分支，于是主路由 `index-translate`、备用 `bing` 时谎报"两者相同"。现在如实写成"已改由整段重跑接替（备用块 N 字 > 主路由 M 字）"。
 - **自检失败不再空白**（`test-target-scope`）：`/test` 的 `target` 声明在 `try` 里、却在 `catch` 里读，于是**主路由测试失败**这条路径本身抛 `ReferenceError`，被兜成 HTTP 400 + 空 body，面板给不出任何原因。改为在 `try` 外声明。

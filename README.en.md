@@ -241,7 +241,7 @@ The largest file is divided by banner comments into four sections:
 ### Verify after editing
 
 ```bash
-node tools/smoke.mjs              # 59: chunking, cache, concurrency, fallback, clamping
+node tools/smoke.mjs              # 60: chunking, cache, concurrency, fallback, clamping
 node tools/select-safe-test.mjs   # 11: idempotent panel writes, selection protection
 node tools/dispose-test.mjs       # 40: resource lifecycle, disposer ownership
 node tools/host-integration.mjs   # 17: routes, config persistence, loopback guard
@@ -302,20 +302,21 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## Quality Assurance
 
-The codebase includes **137** automated assertions that run without any external testing framework:
+The codebase includes **168** automated assertions that run without any external testing framework:
 
 ```bash
 npm test
 ```
 
 Test suite breakdown:
-- `tools/smoke.mjs` (**59**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog), failure-reason wording (unset / half-set / both failed / identical to primary / deferred to a whole-block re-run), `VERSION` consistency with `package.json`, SSE stream parsing, and package manifest constraints.
+- `tools/smoke.mjs` (**60**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog / **fallback run counting**), failure-reason wording (unset / half-set / both failed / identical to primary / deferred to a whole-block re-run), `VERSION` consistency with `package.json`, SSE stream parsing, and package manifest constraints.
 - `tools/anonymous-test.mjs` (**10**): the anonymous Bing channel's request shape (one-shot text array, `to=zh-Hans`, no system prompt, no cookies), response parsing, language-tag mapping, HTTP/network/junk errors, heartbeat keep-alive (a slow call must emit heartbeats or the watchdog kills it), and an already-aborted caller issuing no request.
 - `tools/select-safe-test.mjs` (**11**): idempotent panel writes (same value is never re-written), selection protection (deferred re-render while the user is selecting, at most one timer), and the already-Chinese badge contract.
 - `tools/dispose-test.mjs` (**40**): lifecycle ownership — the eight resources are created and torn down, the disposer is idempotent, HMR re-entry does not stack, **a late disposer from an earlier run must not kill the current one** (regression: it used to stop all translation until reload), locale unsubscribe, and panels left in place on purpose.
 - `tools/host-integration.mjs` (**17**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, loopback security boundaries, the default Bing fallback, and that **`/test` reports a failure as 200 + reason instead of an empty 400**.
 - `tools/parity-check.mjs`: compares the plugin's message payload against DSH's `createUserMessage` (skips automatically when `dsh-llm` is not resolvable).
 - `tools/browser-check.mjs`: loads the real `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, Chinese skipping, event-propagation isolation, instant cleanup on global disable, and panel rendering. **Requires a working browser**; it fails in browserless environments.
+- `tools/fold-mode-check.mjs` (**8**): browser regression for **fold mode** (`foldOriginal: true`, the user's default). A folded row's body is unmounted by React, so the source text can only come from the fiber props (`rawRowText` → `__reactFiber$` → `memoizedProps.text`); when that read fails the plugin silently falls back to the DOM summary, and a summary shorter than `MIN_CHARS` means **no translation and no error at all**. Renders a real React `ReasoningRow` and asserts a panel appears, `/translate` is really called, and the full text (not the folded summary) is sent. **Requires a working browser**.
 
 ## Project Structure
 
@@ -379,6 +380,9 @@ Versioning rules:
 
 ### 2026-10-20
 
+- **Fallback run count no longer stuck at 0** (`fallback-counter`): a whole-block re-run goes through `runPlan(fallbackRoute, …)`, and neither call site incremented `stats.fallbacks` — only the per-chunk fallback did. The `fallbackChunkChars 10000 > maxChunkChars 2400` configuration takes exactly that whole-block path, so the panel always showed "fallback runs: 0" and the user concluded the fallback never fired, while the translation on screen had in fact come from Bing. A run now counts once when any chunk was really produced by the fallback route (multiple chunks do not add up).
+- **Self-check no longer lies about the fallback being unset** (`test-message-honest`): the self-check deliberately blanks the fallback config so it can "test one route only", which made the engine report "fallback not set (provider and model both empty), so no retry". But the user *had* configured `bing/bing-translate` and the row right below showed the fallback test passing — a self-contradicting falsehood. It now reads "this self-check tests only this route and does not use the fallback (your configuration is unaffected)".
+- **Fold-mode browser regression** (`fold-mode-check`): `foldOriginal` appeared **zero times** in `browser-check.mjs`, yet fold mode is the default and takes a completely different text path — a folded row's body is unmounted by React, so the source can only be read from the fiber props; when that read fails the plugin silently falls back to the DOM summary, and a summary shorter than `MIN_CHARS` means **no translation and no error at all**. Eight new assertions render a real React `ReasoningRow` to cover that path.
 - **Disposer ownership** (`dispose-owner`): the previous release gave `startTranslator()` a teardown path, but the teardown did not check **who** it belonged to. When `apply()` runs twice on the same module instance (double mount, fiber restart), the first run's disposer fires late and disconnects the observer plus all four listeners the second run just created — after which **nothing translates for the rest of the page's life** until a full reload. Each start now takes a monotonic `runId`, and a disposer only acts while it still owns the current run. Regression coverage: group 6 of `dispose-test.mjs`.
 - **Correct failure reason** (`fallback-reason-defer`): when the fallback chunk size is larger, per-chunk fallback deliberately defers to a whole-block re-run — but the old code fell into the "fallback identical to the primary" branch and claimed the two routes were the same even when the primary was `index-translate` and the fallback `bing`. It now says "handed over to a whole-block re-run (fallback chunk N > primary M)".
 - **Self-check no longer blank** (`test-target-scope`): `/test` declared `target` inside `try` and read it inside `catch`, so the **primary route failing** path itself threw `ReferenceError` and surfaced as HTTP 400 with an empty body — the panel could not show any reason. `target` is now declared outside the `try`.
