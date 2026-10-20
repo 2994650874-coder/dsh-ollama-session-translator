@@ -381,6 +381,11 @@ await test('POST /test reports a failing route in band instead of an empty 400',
   assert.equal(failed.json.ok, false)
   assert.equal(failed.json.target, 'primary')
   assert.match(String(failed.json.error), /429/)
+  // [PATCH 2026-10-20 test-message-honest] 自检刻意清空备用配置以"只测一条"，
+  // 引擎于是会报「备用路由未设置（…），因此没有重试」。对用户这是假话——他明明
+  // 配了 bing/bing-translate，面板下一行还显示备用测试通过。必须换成如实说明。
+  assert.doesNotMatch(String(failed.json.error), /备用路由未设置/)
+  assert.match(String(failed.json.error), /自检只测这一条路由/)
   llm.failWith(null)
 
   // 成功路径同样要如实回报测的是哪一条。

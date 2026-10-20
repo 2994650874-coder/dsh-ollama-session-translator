@@ -902,6 +902,28 @@ await test('the whole block is re-run at the fallback chunk size when every chun
   assert.equal(backupCalls.length, 1, 'backup should have taken the whole block in one request')
   assert.ok(backupCalls[0].chars > 1000, 'the single backup request should be much larger')
   assert.ok(backupCalls[0].chars > primaryCalls[0].chars * 3, 'backup chunk should dwarf the probe chunk')
+  // [PATCH 2026-10-20 fallback-counter] 整段重跑也算一次备用路由执行。
+  // 旧实现只在单块回退里计数，整段重跑这条路从不 +1，于是面板「备用路由执行
+  // 次数」长期显示 0，用户以为兜底一次都没生效（译文其实正是 Bing 出的）。
+  assert.equal(engine.state().fallbacks, 1, 'a whole-block re-run must count as one fallback run')
+})
+
+await test('the whole-block re-run counts as one fallback run, not one per chunk', async () => {
+  // 一轮翻译里备用路由翻了多块，计数仍然只 +1。
+  const llm = {
+    async *stream(request) {
+      if (request.provider === 'primary') throw new Error('HTTP 504 Gateway Time-out')
+      yield { type: 'text-delta', text: '备用译文' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const engine = createTranslationEngine({
+    getConfig: () => ({ ...BASE_CONFIG, maxChunkChars: 500, maxInputChars: 100000, fallbackProvider: 'backup', fallbackModel: 'm', fallbackChunkChars: 4000 }),
+    getLlm: () => llm,
+    getRoute: () => ({ provider: 'primary', model: 'm', source: 'override' }),
+  })
+  await engine.translate('Another long block. '.repeat(150), {})
+  assert.equal(engine.state().fallbacks, 1)
 })
 
 await test('no whole-block re-run when only some chunks fail', async () => {
