@@ -302,7 +302,7 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## Quality Assurance
 
-The codebase includes **168** automated assertions that run without any external testing framework:
+The codebase includes **184** automated assertions that run without any external testing framework:
 
 ```bash
 npm test
@@ -312,8 +312,18 @@ Test suite breakdown:
 - `tools/smoke.mjs` (**60**): chunking reversibility (concatenated chunks match the original byte-for-byte), boundary clipping, Chinese detection thresholds, cache read/write and dedupe, the concurrency gate, failure attribution, config clamping, fallback routing (per-chunk retry / whole-block re-run at the fallback chunk size / probe mode / silence watchdog / **fallback run counting**), failure-reason wording (unset / half-set / both failed / identical to primary / deferred to a whole-block re-run), `VERSION` consistency with `package.json`, SSE stream parsing, and package manifest constraints.
 - `tools/anonymous-test.mjs` (**10**): the anonymous Bing channel's request shape (one-shot text array, `to=zh-Hans`, no system prompt, no cookies), response parsing, language-tag mapping, HTTP/network/junk errors, heartbeat keep-alive (a slow call must emit heartbeats or the watchdog kills it), and an already-aborted caller issuing no request.
 - `tools/select-safe-test.mjs` (**11**): idempotent panel writes (same value is never re-written), selection protection (deferred re-render while the user is selecting, at most one timer), and the already-Chinese badge contract.
+- `tools/err-i18n-test.mjs` (**30**): i18n of host error notices — the shapes
+  `normalizeHostError()` produces for each host error class, key coverage, and a
+  fallback that never throws.
+- `tools/builtin-models-test.mjs` (**15**): live model-list fetch for the built-in
+  OpenAI-compatible endpoint (Bilibili Index-Translate) — parsing `GET /v1/models`,
+  a newly listed model appearing without a code change, **all four failure modes
+  (non-http / non-200 / empty data / malformed JSON) falling back to the written
+  list and never returning empty**, dedupe and order, a missing `name` defaulting to
+  the id, TTL hit and miss, a failure never cached as success, trailing-slash
+  normalization, and the returned copy being immune to caller mutation.
 - `tools/dispose-test.mjs` (**40**): lifecycle ownership — the eight resources are created and torn down, the disposer is idempotent, HMR re-entry does not stack, **a late disposer from an earlier run must not kill the current one** (regression: it used to stop all translation until reload), locale unsubscribe, and panels left in place on purpose.
-- `tools/host-integration.mjs` (**17**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, loopback security boundaries, the default Bing fallback, and that **`/test` reports a failure as 200 + reason instead of an empty 400**.
+- `tools/host-integration.mjs` (**18**): mounts the real routes inside a simulated cordis container to validate state queries, translation handling, config persistence, draft overrides that never touch disk, loopback security boundaries, the default Bing fallback, that **`/test` reports a failure as 200 + reason instead of an empty 400**, and that **`/catalog` keeps returning the built-in channels and flags a failed probe when the llm service hiccups**.
 - `tools/parity-check.mjs`: compares the plugin's message payload against DSH's `createUserMessage` (skips automatically when `dsh-llm` is not resolvable).
 - `tools/browser-check.mjs`: loads the real `lib/client.js` in Headless Chrome to assert expansion triggers, streaming deferral, Chinese skipping, event-propagation isolation, instant cleanup on global disable, and panel rendering. **Requires a working browser**; it fails in browserless environments.
 - `tools/fold-mode-check.mjs` (**8**): browser regression for **fold mode** (`foldOriginal: true`, the user's default). A folded row's body is unmounted by React, so the source text can only come from the fiber props (`rawRowText` → `__reactFiber$` → `memoizedProps.text`); when that read fails the plugin silently falls back to the DOM summary, and a summary shorter than `MIN_CHARS` means **no translation and no error at all**. Renders a real React `ReasoningRow` and asserts a panel appears, `/translate` is really called, and the full text (not the folded summary) is sent. **Requires a working browser**.

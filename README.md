@@ -313,7 +313,7 @@ dsh plugin --profile desktop remove dsh-session-translator
 
 ## 质量保证
 
-项目内置 **168 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
+项目内置 **184 项**可在无浏览器环境跑的自动化测试，无第三方测试框架依赖：
 
 ```bash
 npm test
@@ -322,9 +322,11 @@ npm test
 测试覆盖清单：
 - `tools/smoke.mjs` (**60 项**)：分块可逆性（重组后与原文逐字节一致）、自然边界截断、中文检测阈值、缓存读写与去重、并发闸门、失败归因、配置夹紧边界、备用路由（单块回退 / 整段按备用块重跑 / 探针模式 / 看门狗 / **执行次数计数**）、**失败原因标注**（备用未配置 / 只配一半 / 两条都失败 / 与主路由相同 / 让位给整段重跑）、`VERSION` 与 `package.json` 一致性、SSE 流式解析、包清单契约。
 - `tools/anonymous-test.mjs` (**10 项**)：Bing 匿名渠道的请求形状（一次性 text 数组、`to=zh-Hans`、不带 system、不带 cookie）、响应解析、语言 tag 映射、HTTP/网络/脏数据错误、心跳保活（慢请求必须吐 heartbeat 才不被看门狗误杀）、已取消的调用不发请求。
+- `tools/err-i18n-test.mjs` (**30 项**)：系统报错文案的中英文对照与归一化——`normalizeHostError()` 对各类host 错误的形状稳定、i18n 键覆盖、回退不抛。
+- `tools/builtin-models-test.mjs` (**15 项**)：内置 OpenAI 兼容渠道（B站翻译）的模型列表动态拉取——`GET /v1/models` 正常解析、上线新模型无需改代码、**四种失败模式（非 http / 非 200 / 空 data / 坏 JSON）一律回落到写死清单且绝不返回空**、去重与顺序、缺 `name` 时用 id 兜底、TTL 命中与未命中、失败不被缓存成成功、尾斜杠归一、返回副本不可被调用方篡改。
 - `tools/select-safe-test.mjs` (**11 项**)：译文面板幂等写入（同值不写）、选区保护（拖选时延迟补写、至多一个定时器）、跳过回显徽章契约。
 - `tools/dispose-test.mjs` (**40 项**)：生命周期归属——8 项资源建立与拆除、幂等、HMR 重入不叠加、**迟到的旧 disposer 不得拆掉当前这一轮**（回归：拆了会整页不再翻译）、locale 退订、面板不被撤。
-- `tools/host-integration.mjs` (**17 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截、**默认备用路由就是内置 Bing 渠道**，以及 **`/test` 失败时必须回 200 + 原因（不能是空 400）**。
+- `tools/host-integration.mjs` (**18 项**)：模拟 cordis 运行时挂载真实路由，验证状态获取、翻译处理、配置持久化、草稿覆盖不写盘、越权请求拦截、**默认备用路由就是内置 Bing 渠道**、**`/test` 失败时必须回 200 + 原因（不能是空 400）**，以及 **`/catalog` 在 llm 服务抽风时仍要返回内置渠道并标出探测失败的渠道**。
 - `tools/parity-check.mjs`：比对插件内部封装的消息体与 DSH 原生 `createUserMessage`（找不到 `dsh-llm` 时自动跳过）。
 - `tools/browser-check.mjs`：在 Headless Chrome 中加载真实 `lib/client.js`，验证折叠不译、流式等待、中文跳过、DOM 事件冒泡阻断、总开关关闭即时隐藏及面板渲染。**需要可用的浏览器**，无浏览器环境会失败。
 - `tools/fold-mode-check.mjs` (**8 项**)：**折叠模式**（`foldOriginal: true`，用户的默认模式）的浏览器回归。折叠行的 body 被 React 卸载，原文只能从 fiber props 读（`rawRowText` → `__reactFiber$` → `memoizedProps.text`）；读失败会静默退回 DOM 摘要，摘要短于 `MIN_CHARS` 就**不翻译且不报错**。用真实 React 渲染 `ReasoningRow` 断言：面板出现、`/translate` 真被调用、发出的是完整原文而非折叠摘要。**需要可用的浏览器**。

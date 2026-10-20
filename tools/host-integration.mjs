@@ -287,6 +287,28 @@ await test('PUT /config rejects cross-origin, wrong content type, and a missing 
   assert.match(String(noSection.json.error), /section/)
 })
 
+await test('GET /catalog keeps built-in channels and flags a failed probe', async () => {
+  // [PATCH 2026-10-20 catalog-probe-warning] 内置渠道的模型清单是实时拉的，
+  // 但宿主启动时 B 站端点可达与否取决于机器/网络。这里只断言两条不依赖
+  // 外网的契约：① 内置渠道永远在列表里（哪怕 llm 抖动也不能被抹掉）；
+  // ② probeFailed 恒为数组，面板据此决定要不要提示用户。
+  const response = await call(routes, '/dsh-session-translator/catalog')
+  assert.equal(response.status, 200)
+  assert.equal(response.json.ok, true)
+  const ids = response.json.providers.map((entry) => entry.id)
+  assert.ok(ids.includes('bing'), 'the built-in Bing channel must survive an llm hiccup')
+  assert.ok(
+    ids.some((id) => id.startsWith('http://') || id.startsWith('https://')),
+    'the built-in openai endpoint channel must be listed too',
+  )
+  assert.ok(Array.isArray(response.json.probeFailed), 'probeFailed must always be an array')
+  // bing 永不参与探测（没有 OpenAI 兼容的 models 端点）。
+  assert.ok(!response.json.probeFailed.includes('bing'), 'Bing is never probed')
+  // 每个内置渠道都必须带非空 models，否则面板下拉只剩「未设置」。
+  for (const entry of response.json.providers) {
+    if (entry.builtin === true) assert.ok(entry.models.length > 0, `${entry.id} must offer at least one model`)
+  }
+})
 await test('GET /providers and /models report the LLM catalogue', async () => {
   const providers = await call(routes, '/dsh-session-translator/providers')
   assert.equal(providers.status, 200)
