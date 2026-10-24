@@ -1,4 +1,5 @@
 // Focused check: does the settings panel lock "Translate while streaming" on a
+//,// ⚠️ 「云渠道」必须用真正的云 provider id。`ollama` 自 [PATCH 2026-10-22,// ollama-builtin] 起被 isLocalProvider() 判为**本地**渠道，拿它当云用例会 4 项 FAIL。
 // cloud route and unlock it on a local endpoint?
 //
 // 用 page.route + 本地 http server 承载 fixture，驱动真实 client.js 渲染设置面板，
@@ -55,12 +56,12 @@ const stateFor = (mode) =>
       horizonRows: 5,
       translateErrors: true,
       targetLanguage: 'zh-CN',
-      provider: mode === 'cloud' ? 'ollama' : 'http://127.0.0.1:11434',
+      provider: mode === 'cloud' ? 'workbuddy-ai' : 'ollama',
       model: mode === 'cloud' ? 'qwen' : 'qwen2.5',
     },
     defaults: {},
     languages: [{ id: 'zh-CN', label: '中文' }],
-    route: { provider: mode === 'cloud' ? 'ollama' : 'http://127.0.0.1:11434', model: 'qwen' },
+    route: { provider: mode === 'cloud' ? 'workbuddy-ai' : 'ollama', model: 'qwen' },
     stats: {},
     liveDowngraded: mode === 'cloud',
   })
