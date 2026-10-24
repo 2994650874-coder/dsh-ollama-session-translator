@@ -46,7 +46,7 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 > - **No render-tree surgery**: it claims no slot and replaces no official component; it only appends its own DOM node next to the thinking block. Worst case after a DSH UI change is that the translation quietly stops appearing, never a broken chat interface.
 > - **No session-data writes**: it does not write session logs, does not appear in trajectory views, and does not touch the KV cache or context compaction. Your context window stays byte-for-byte what it was before installing.
 > - **No leftovers**: the translation cache lives inside each session's own folder, so uninstalling the plugin or deleting a session removes it. There is no orphaned file in a third-party directory.
-> - **Compatibility**: verified on DSH Desktop 0.2.1-rc.2, but it only uses three stable APIs (`webServer`, `slots`, `locale`) and needed no change from the rc era through 0.2.1.
+> - **Compatibility**: verified on DSH Desktop 0.2.1-rc.3, but it only uses three stable APIs (`webServer`, `slots`, `locale`) and needed no change from the rc era through 0.2.1.
 >
 > **Feature highlights**
 >
@@ -55,7 +55,7 @@ When working with reasoning models such as DeepSeek, GLM, or Gemini, chain-of-th
 > - **Built-in Index-Translate channel**: Bilibili's free translation API ships as a built-in channel ranked first in the provider list — no endpoint URL, no API key.
 > - **Built-in Bing fallback**: an anonymous, key-free Bing translation channel ships as the **default fallback route** — when the primary channel dies, translation keeps working without a key, without a DSH channel registration, and without spending quota.
 > - **Rebuilt settings panel**: hand-drawn dropdowns (Electron closes native popups on any parent re-render), draft + manual save (Ctrl+S included), buffered number inputs, and per-route quota settings.
-> - **Environment adaptation**: adapted to DSH Desktop 0.2.1-rc.2 (relaxed same-origin checks in the desktop webview, sessions API differences, dual-strategy thinking-block DOM lookup).
+> - **Environment adaptation**: adapted to DSH Desktop 0.2.1-rc.3 (relaxed same-origin checks in the desktop webview, sessions API differences, dual-strategy thinking-block DOM lookup).
 
 ## Requirements
 
@@ -357,7 +357,7 @@ dsh-session-translator/
 
 ## Version History
 
-**Current version `0.2.1-2`, aligned with the official DSH release number.**
+**Current version `0.2.1-3`, aligned with the official DSH release number.**
 
 Versioning rules:
 
